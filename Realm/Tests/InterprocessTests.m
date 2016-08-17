@@ -126,7 +126,7 @@
 
 - (void)testBackgroundProcessDoesNotTriggerSpuriousNotifications {
     RLMRealm *realm = [RLMRealm defaultRealm];
-    RLMNotificationToken *token = [realm addNotificationBlock:^(__unused NSString *notification, __unused RLMRealm *realm) {
+    RLMNotificationToken *token = [realm addNotificationBlock:^(__unused RLMNotification notification, __unused RLMRealm *realm) {
         XCTFail(@"Notification should not have been triggered");
     }];
 
@@ -138,7 +138,7 @@
         XCTAssertEqual(0U, [IntObject allObjectsInRealm:realm].count);
     }
 
-    [realm removeNotification:token];
+    [token stop];
 }
 
 - (void)testShareInMemoryRealm {
@@ -197,7 +197,7 @@
         }
     }
 
-    [realm removeNotification:token];
+    [token stop];
 }
 
 - (void)testManyWriters {
@@ -229,7 +229,7 @@
             CFRunLoopStop(CFRunLoopGetCurrent());
         }];
         CFRunLoopRun();
-        [realm removeNotification:token];
+        [token stop];
     };
 
     IntObject *obj = [IntObject allObjects].firstObject;
@@ -279,6 +279,22 @@
     if (self.isParent) {
         [self runChildAndWait];
         RLMRealm *realm = RLMRealm.defaultRealm;
+        [realm beginWriteTransaction];
+        [IntObject createInRealm:realm withValue:@[@0]];
+        [realm commitWriteTransaction];
+        XCTAssertEqual(1U, [IntObject allObjects].count);
+    }
+    else {
+        RLMRealm *realm = RLMRealm.defaultRealm;
+        [realm beginWriteTransaction];
+        abort();
+    }
+}
+
+- (void)testRecoverAfterCrashWithFileAlreadyOpen {
+    if (self.isParent) {
+        RLMRealm *realm = RLMRealm.defaultRealm;
+        [self runChildAndWait];
         [realm beginWriteTransaction];
         [IntObject createInRealm:realm withValue:@[@0]];
         [realm commitWriteTransaction];

@@ -54,4 +54,41 @@
     if (exception) { \
         RLMAssertMatches(exception.reason, regex, __VA_ARGS__); \
     } \
+    exception; \
+})
+
+#define RLMAssertThrowsWithCodeMatching(expression, expectedCode, ...) \
+({ \
+    NSException *exception = RLMAssertThrows(expression, __VA_ARGS__); \
+    XCTAssertEqual([exception.userInfo[NSUnderlyingErrorKey] code], expectedCode, __VA_ARGS__); \
+})
+
+#define RLMValidateRealmError(macro_error, macro_errnum, macro_description, macro_underlying)            \
+({                                                                                                       \
+    NSString *macro_dsc = macro_description;                                                             \
+    NSString *macro_usl = macro_underlying;                                                              \
+    macro_dsc = [macro_dsc lowercaseString];                                                             \
+    macro_usl = [macro_usl lowercaseString];                                                             \
+    NSError *macro_castErr = (NSError *)macro_error;                                                     \
+    XCTAssertNotNil(macro_castErr);                                                                      \
+    XCTAssertEqual(macro_castErr.domain, RLMErrorDomain, @"Was expecting the error domain '%@', but got non-interned '%@' instead", RLMErrorDomain, macro_castErr.domain); \
+    XCTAssertEqual(macro_castErr.code, macro_errnum);                                                    \
+    if (macro_dsc.length) {                                                                              \
+        NSString *macro_dscActual = [macro_castErr.userInfo[NSLocalizedDescriptionKey] lowercaseString]; \
+        XCTAssertNotNil(macro_dscActual);                                                                \
+        XCTAssert([macro_dscActual containsString:macro_dsc], @"Did not find the expected string '%@' in the description string '%@'", macro_dsc, macro_dscActual); \
+    }                                                                                                    \
+    if (macro_usl.length) {                                                                              \
+        NSString *macro_uslActual = [macro_castErr.userInfo[@"Underlying"] lowercaseString];             \
+        XCTAssertNotNil(macro_uslActual);                                                                \
+        XCTAssert([macro_uslActual containsString:macro_usl], @"Did not find the expected string '%@' in the underlying info string '%@'", macro_usl, macro_uslActual); \
+    }                                                                                                    \
+})
+
+/// Check that an exception is thrown, and validate additional details about its underlying error.
+#define RLMAssertThrowsWithError(macro_expr, macro_except_string, macro_errnum, macro_underlying_string) \
+({                                                                                                       \
+    NSException *macro_exception = RLMAssertThrowsWithReasonMatching(macro_expr, macro_except_string);   \
+    NSError *macro_excErr = (NSError *)(macro_exception.userInfo[NSUnderlyingErrorKey]);                 \
+    RLMValidateRealmError(macro_excErr, macro_errnum, nil, macro_underlying_string);                     \
 })

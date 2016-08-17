@@ -118,8 +118,8 @@ RLM_ARRAY_TYPE(IntObject)
 @property NSDate       *dateCol;
 @property bool          cBoolCol;
 @property int64_t     longCol;
-@property id            mixedCol;
 @property StringObject *objectCol;
+@property (readonly) RLMLinkingObjects *linkingObjectsCol;
 
 @end
 
@@ -167,11 +167,20 @@ RLM_ARRAY_TYPE(EmployeeObject)
 
 @end
 
+#pragma mark LinkToCompanyObject
+
+@interface LinkToCompanyObject : RLMObject
+
+@property CompanyObject *company;
+
+@end
+
 #pragma mark DogObject
 
 @interface DogObject : RLMObject
 @property NSString *dogName;
 @property int age;
+@property (readonly) RLMLinkingObjects *owners;
 @end
 
 RLM_ARRAY_TYPE(DogObject)
@@ -192,16 +201,6 @@ RLM_ARRAY_TYPE(DogObject)
 
 #pragma mark - Specific Use Objects
 #pragma mark -
-
-#pragma mark MixedObject
-
-@interface MixedObject : RLMObject
-
-@property BOOL hired;
-@property id other;
-@property NSInteger age;
-
-@end
 
 #pragma mark CustomAccessorsObject
 
@@ -303,6 +302,29 @@ RLM_ARRAY_TYPE(CircleObject);
 @end
 
 @interface NumberDefaultsObject : NumberObject
+@end
+
+#pragma mark CustomInitializerObject
+
+@interface CustomInitializerObject : RLMObject
+@property NSString *stringCol;
+@end
+
+#pragma mark AbstractObject
+
+@interface AbstractObject : RLMObject
+@end
+
+#pragma mark PersonObject
+
+@class PersonObject;
+RLM_ARRAY_TYPE(PersonObject);
+
+@interface PersonObject : RLMObject
+@property NSString *name;
+@property NSInteger age;
+@property RLMArray<PersonObject> *children;
+@property (readonly) RLMLinkingObjects *parents;
 @end
 
 #pragma mark FakeObject

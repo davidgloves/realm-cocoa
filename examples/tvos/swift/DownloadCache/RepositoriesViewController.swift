@@ -27,10 +27,7 @@ class RepositoriesViewController: UICollectionViewController, UITextFieldDelegat
     var token: NotificationToken?
 
     deinit {
-        let realm = try! Realm()
-        if let token = token {
-            realm.removeNotification(token)
-        }
+        token?.stop()
     }
 
     override func viewDidLoad() {
@@ -103,7 +100,7 @@ class RepositoriesViewController: UICollectionViewController, UITextFieldDelegat
 
     func reloadData() {
         let realm = try! Realm()
-        results = realm.objects(Repository)
+        results = realm.objects(Repository.self)
         if let text = searchField.text where !text.isEmpty {
             results = results?.filter("name contains[c] %@", text)
         }

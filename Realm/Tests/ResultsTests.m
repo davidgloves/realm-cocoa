@@ -127,8 +127,7 @@
 
     XCTAssertEqualObjects([[AggregateObject allObjectsInRealm:realm] valueForKey:@"intCol"], @[]);
 
-    // Truncate to seconds so it round-trips exactly
-    NSDate *dateMinInput = [NSDate dateWithTimeIntervalSince1970:(int64_t)[[NSDate date] timeIntervalSince1970]];
+    NSDate *dateMinInput = [NSDate date];
     NSDate *dateMaxInput = [dateMinInput dateByAddingTimeInterval:1000];
 
     [AggregateObject createInRealm:realm withValue:@[@0, @1.2f, @0.0, @YES, dateMinInput]];
@@ -171,8 +170,7 @@
 
     [realm beginWriteTransaction];
 
-    // Truncate to seconds so it round-trips exactly
-    NSDate *dateMinInput = [NSDate dateWithTimeIntervalSince1970:(int64_t)[[NSDate date] timeIntervalSince1970]];
+    NSDate *dateMinInput = [NSDate date];
     NSDate *dateMaxInput = [dateMinInput dateByAddingTimeInterval:1000];
 
     [AggregateObject createInRealm:realm withValue:@[@0, @1.2f, @0.0, @YES, dateMinInput]];
@@ -195,6 +193,10 @@
                           (@[@10, @10, @10, @10, @10, @10]));
 
     XCTAssertThrows([[AggregateObject allObjectsInRealm:realm] valueForKey:@"invalid"]);
+
+    [[AggregateObject objectsInRealm:realm where:@"intCol != 5"] setValue:@5 forKey:@"intCol"];
+    XCTAssertEqualObjects([[AggregateObject allObjectsInRealm:realm] valueForKey:@"intCol"],
+                          (@[@5, @5, @5, @5, @5, @5, @5, @5, @5, @5]));
 
     [realm commitWriteTransaction];
 
@@ -224,8 +226,7 @@
 
     [realm beginWriteTransaction];
 
-    // Truncate to seconds so it round-trips exactly
-    NSDate *dateMinInput = [NSDate dateWithTimeIntervalSince1970:(int64_t)[[NSDate date] timeIntervalSince1970]];
+    NSDate *dateMinInput = [NSDate date];
     NSDate *dateMaxInput = [dateMinInput dateByAddingTimeInterval:1000];
 
     [AggregateObject createInRealm:realm withValue:@[@0, @1.2f, @0.0, @YES, dateMinInput]];
@@ -431,13 +432,13 @@
     [realm deleteObject:deletedObject];
     [realm commitWriteTransaction];
 
-    EmployeeObject *standalone = [[EmployeeObject alloc] init];
+    EmployeeObject *unmanaged = [[EmployeeObject alloc] init];
 
     RLMResults *results = [EmployeeObject objectsWhere:@"hired = YES"];
     XCTAssertEqual(0U, [results indexOfObject:po1]);
     XCTAssertEqual(1U, [results indexOfObject:po3]);
     XCTAssertEqual((NSUInteger)NSNotFound, [results indexOfObject:po2]);
-    XCTAssertEqual((NSUInteger)NSNotFound, [results indexOfObject:standalone]);
+    XCTAssertEqual((NSUInteger)NSNotFound, [results indexOfObject:unmanaged]);
     RLMAssertThrowsWithReasonMatching([results indexOfObject:so], @"StringObject.*EmployeeObject");
     RLMAssertThrowsWithReasonMatching([results indexOfObject:deletedObject], @"Object has been invalidated");
 
@@ -445,7 +446,7 @@
     XCTAssertEqual(0U, [results indexOfObject:po1]);
     XCTAssertEqual(1U, [results indexOfObject:po3]);
     XCTAssertEqual((NSUInteger)NSNotFound, [results indexOfObject:po2]);
-    XCTAssertEqual((NSUInteger)NSNotFound, [results indexOfObject:standalone]);
+    XCTAssertEqual((NSUInteger)NSNotFound, [results indexOfObject:unmanaged]);
     RLMAssertThrowsWithReasonMatching([results indexOfObject:so], @"StringObject.*EmployeeObject");
     RLMAssertThrowsWithReasonMatching([results indexOfObject:deletedObject], @"Object has been invalidated");
 
@@ -454,7 +455,7 @@
     XCTAssertEqual(1U, [results indexOfObject:po1]);
     XCTAssertEqual(0U, [results indexOfObject:po3]);
     XCTAssertEqual((NSUInteger)NSNotFound, [results indexOfObject:po2]);
-    XCTAssertEqual((NSUInteger)NSNotFound, [results indexOfObject:standalone]);
+    XCTAssertEqual((NSUInteger)NSNotFound, [results indexOfObject:unmanaged]);
     RLMAssertThrowsWithReasonMatching([results indexOfObject:so], @"StringObject.*EmployeeObject");
     RLMAssertThrowsWithReasonMatching([results indexOfObject:deletedObject], @"Object has been invalidated");
 
@@ -462,7 +463,7 @@
     XCTAssertEqual(0U, [results indexOfObject:po1]);
     XCTAssertEqual(1U, [results indexOfObject:po2]);
     XCTAssertEqual(2U, [results indexOfObject:po3]);
-    XCTAssertEqual((NSUInteger)NSNotFound, [results indexOfObject:standalone]);
+    XCTAssertEqual((NSUInteger)NSNotFound, [results indexOfObject:unmanaged]);
     RLMAssertThrowsWithReasonMatching([results indexOfObject:so], @"StringObject.*EmployeeObject");
     RLMAssertThrowsWithReasonMatching([results indexOfObject:deletedObject], @"Object has been invalidated");
 }
@@ -475,6 +476,7 @@
     [EmployeeObject createInRealm:realm withValue:@{@"name": @"Joe",  @"age": @40, @"hired": @YES}];
     [EmployeeObject createInRealm:realm withValue:@{@"name": @"John", @"age": @30, @"hired": @NO}];
     [EmployeeObject createInRealm:realm withValue:@{@"name": @"Jill", @"age": @25, @"hired": @YES}];
+    [EmployeeObject createInRealm:realm withValue:@{@"name": @"Phil", @"age": @38, @"hired": @NO}];
     [realm commitWriteTransaction];
 
     RLMResults *results = [EmployeeObject objectsWhere:@"hired = YES"];
@@ -487,6 +489,14 @@
     XCTAssertEqual(1U, ([results indexOfObjectWhere:@"age = %d", 30]));
     XCTAssertEqual(2U, ([results indexOfObjectWhere:@"age = %d", 25]));
     XCTAssertEqual((NSUInteger)NSNotFound, ([results indexOfObjectWhere:@"age = %d", 35]));
+
+    results = [[EmployeeObject allObjects] sortedResultsUsingProperty:@"age" ascending:YES];
+    NSUInteger youngestHired = [results indexOfObjectWhere:@"hired = YES"];
+    XCTAssertEqual(0U, youngestHired);
+    XCTAssertEqualObjects(@"Jill", [results[youngestHired] name]);
+    NSUInteger youngestNotHired = [results indexOfObjectWhere:@"hired = NO"];
+    XCTAssertEqual(1U, youngestNotHired);
+    XCTAssertEqualObjects(@"John", [results[youngestNotHired] name]);
 }
 
 - (void)testSubqueryLifetime
@@ -806,6 +816,7 @@ static vm_size_t get_resident_size() {
     }];
 
     RLMResults *results = [IntObject allObjects];
+    XCTAssertNoThrow([results isInvalidated]);
     XCTAssertNoThrow([results objectAtIndex:0]);
     XCTAssertNoThrow([results firstObject]);
     XCTAssertNoThrow([results lastObject]);
@@ -824,6 +835,7 @@ static vm_size_t get_resident_size() {
     XCTAssertNoThrow([results valueForKey:@"intCol"]);
 
     [self dispatchAsyncAndWait:^{
+        XCTAssertThrows([results isInvalidated]);
         XCTAssertThrows([results objectAtIndex:0]);
         XCTAssertThrows([results firstObject]);
         XCTAssertThrows([results lastObject]);
@@ -850,6 +862,7 @@ static vm_size_t get_resident_size() {
     }];
 
     RLMResults *results = [IntObject allObjects];
+    XCTAssertFalse(results.isInvalidated);
     XCTAssertNoThrow([results objectAtIndex:0]);
     XCTAssertNoThrow([results firstObject]);
     XCTAssertNoThrow([results lastObject]);
@@ -870,6 +883,7 @@ static vm_size_t get_resident_size() {
 
     [realm invalidate];
 
+    XCTAssertTrue(results.isInvalidated);
     XCTAssertThrows([results objectAtIndex:0]);
     XCTAssertThrows([results firstObject]);
     XCTAssertThrows([results lastObject]);
@@ -887,6 +901,94 @@ static vm_size_t get_resident_size() {
     XCTAssertThrows(results[0]);
     XCTAssertThrows([results valueForKey:@"intCol"]);
     XCTAssertThrows({for (__unused id obj in results);});
+}
+
+- (void)testResultsDependingOnDeletedLinkView {
+    RLMRealm *realm = [RLMRealm defaultRealm];
+    __block IntegerArrayPropertyObject *object;
+    [realm transactionWithBlock:^{
+        IntObject* intObject = [IntObject createInDefaultRealmWithValue:@[@0]];
+        object = [IntegerArrayPropertyObject createInDefaultRealmWithValue:@[ @0, @[ intObject ] ]];
+    }];
+
+    RLMResults *results = [object.array sortedResultsUsingProperty:@"intCol" ascending:YES];
+    [results firstObject];
+
+    RLMResults *unevaluatedResults = [object.array sortedResultsUsingProperty:@"intCol" ascending:YES];
+
+    [realm transactionWithBlock:^{
+        [realm deleteObject:object];
+    }];
+
+    XCTAssertFalse(results.isInvalidated);
+    XCTAssertFalse(unevaluatedResults.isInvalidated);
+
+    XCTAssertEqual(0u, results.count);
+    XCTAssertEqual(0u, unevaluatedResults.count);
+
+    XCTAssertEqualObjects(nil, results.firstObject);
+    XCTAssertEqualObjects(nil, unevaluatedResults.firstObject);
+}
+
+- (void)testResultsDependingOnDeletedTableView {
+    RLMRealm *realm = [RLMRealm defaultRealm];
+    __block DogObject *dog;
+    [realm transactionWithBlock:^{
+        dog = [DogObject createInDefaultRealmWithValue:@[ @"Fido", @3 ]];
+        [OwnerObject createInDefaultRealmWithValue:@[ @"John", dog ]];
+    }];
+
+    RLMResults *results = [dog.owners objectsWhere:@"name != 'Not a real name'"];
+    [results firstObject];
+
+    RLMResults *unevaluatedResults = [dog.owners objectsWhere:@"name != 'Not a real name'"];
+
+    [realm transactionWithBlock:^{
+        [realm deleteObject:dog];
+    }];
+
+    XCTAssertFalse(results.isInvalidated);
+    XCTAssertFalse(unevaluatedResults.isInvalidated);
+
+    XCTAssertEqual(0u, results.count);
+    XCTAssertEqual(0u, unevaluatedResults.count);
+
+    XCTAssertEqualObjects(nil, results.firstObject);
+    XCTAssertEqualObjects(nil, unevaluatedResults.firstObject);
+}
+
+- (void)testResultsDependingOnLinkingObjects {
+    RLMRealm *realm = [RLMRealm defaultRealm];
+    __block DogObject *dog;
+    __block OwnerObject *owner;
+    [realm transactionWithBlock:^{
+        dog = [DogObject createInDefaultRealmWithValue:@[ @"Fido", @3 ]];
+        owner = [OwnerObject createInDefaultRealmWithValue:@[ @"John", dog ]];
+    }];
+
+    XCTestExpectation *expectation = [self expectationWithDescription:@""];
+    RLMResults *results = [DogObject objectsWhere:@"ANY owners.name == 'James'"];
+    id token = [results addNotificationBlock:^(__unused RLMResults *results, RLMCollectionChange *change, __unused NSError *error) {
+        if (change != nil) {
+            [expectation fulfill];
+        }
+        CFRunLoopStop(CFRunLoopGetCurrent());
+    }];
+    // Consume the initial notification.
+    CFRunLoopRun();
+
+    XCTAssertEqual(0u, results.count);
+    XCTAssertNil(results.firstObject);
+
+    [realm transactionWithBlock:^{
+        owner.name = @"James";
+    }];
+
+    XCTAssertEqual(1u, results.count);
+    XCTAssertEqualObjects(dog.dogName, [results.firstObject dogName]);
+
+    [self waitForExpectationsWithTimeout:1.0 handler:nil];
+    token = nil;
 }
 
 @end

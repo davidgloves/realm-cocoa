@@ -22,10 +22,16 @@
 
 #import "RLMAccessor.h"
 #import "RLMObjectSchema_Private.hpp"
+#import "RLMObject_Private.h"
 #import "RLMProperty_Private.h"
-#import "RLMRealmConfiguration_Private.h"
+#import "RLMRealmConfiguration_Private.hpp"
 #import "RLMRealm_Dynamic.h"
-#import "RLMSchema_Private.h"
+#import "RLMRealm_Private.hpp"
+#import "RLMSchema_Private.hpp"
+#import "RLMUtil.hpp"
+#import "schema.hpp"
+
+#import <realm/table.hpp>
 
 #import <algorithm>
 #import <objc/runtime.h>
@@ -126,7 +132,7 @@ RLM_ARRAY_TYPE(SchemaTestClassSecondChild)
 @end
 
 @interface InvalidNSNumberProtocolObject : FakeObject
-@property NSNumber<RLMFastEnumerable> *number;
+@property NSNumber<NSFastEnumeration> *number;
 @end
 @implementation InvalidNSNumberProtocolObject
 @end
@@ -137,12 +143,133 @@ RLM_ARRAY_TYPE(SchemaTestClassSecondChild)
 @implementation InvalidNSNumberNoProtocolObject
 @end
 
+@class InvalidReadWriteLinkingObjectsProperty;
+@class InvalidLinkingObjectsPropertiesMethod;
+@class ValidLinkingObjectsPropertyWithProtocol;
+@class InvalidLinkingObjectsPropertyProtocol;
+
+@interface SchemaTestsLinkSource : FakeObject
+@property InvalidReadWriteLinkingObjectsProperty *irwlop;
+@property InvalidLinkingObjectsPropertiesMethod *iloprm;
+@property ValidLinkingObjectsPropertyWithProtocol *vlopwp;
+@property InvalidLinkingObjectsPropertyProtocol *ilopp;
+@end
+@implementation SchemaTestsLinkSource
+@end
+
+@interface MixedProperty : FakeObject
+@property id mixed;
+@end
+
+@implementation MixedProperty
+@end
+
+RLM_ARRAY_TYPE(SchemaTestsLinkSource)
+
+@interface InvalidReadWriteLinkingObjectsProperty : FakeObject
+@property RLMLinkingObjects *linkingObjects;
+@end
+
+@implementation InvalidReadWriteLinkingObjectsProperty
+
++ (NSDictionary *)linkingObjectsProperties {
+    return @{ @"linkingObjects": [RLMPropertyDescriptor descriptorWithClass:SchemaTestsLinkSource.class propertyName:@"irwlop"] };
+}
+
+@end
+
+@interface InvalidLinkingObjectsPropertiesMethod : FakeObject
+@property (readonly) RLMLinkingObjects *linkingObjects;
+@end
+
+@implementation InvalidLinkingObjectsPropertiesMethod
+@end
+
+
+@interface ValidLinkingObjectsPropertyWithProtocol : FakeObject
+@property (readonly) RLMLinkingObjects<SchemaTestsLinkSource> *linkingObjects;
+@end
+
+@implementation ValidLinkingObjectsPropertyWithProtocol
+
++ (NSDictionary *)linkingObjectsProperties {
+    return @{ @"linkingObjects": [RLMPropertyDescriptor descriptorWithClass:SchemaTestsLinkSource.class propertyName:@"vlopwp"] };
+}
+
+@end
+
+RLM_ARRAY_TYPE(NotARealClass)
+
+@interface InvalidLinkingObjectsPropertyProtocol : FakeObject
+@property (readonly) RLMLinkingObjects<NotARealClass> *linkingObjects;
+@end
+
+@implementation InvalidLinkingObjectsPropertyProtocol
+
++ (NSDictionary *)linkingObjectsProperties {
+    return @{ @"linkingObjects": [RLMPropertyDescriptor descriptorWithClass:SchemaTestsLinkSource.class propertyName:@"ilopp"] };
+}
+
+@end
+
+
+@interface InvalidLinkingObjectsPropertyMissingSourcePropertyOfLink : FakeObject
+@property (readonly) RLMLinkingObjects *linkingObjects;
+@property InvalidLinkingObjectsPropertyMissingSourcePropertyOfLink *link;
+@end
+
+@implementation InvalidLinkingObjectsPropertyMissingSourcePropertyOfLink
+
++ (NSDictionary *)linkingObjectsProperties {
+    return @{ @"linkingObjects": [RLMPropertyDescriptor descriptorWithClass:InvalidLinkingObjectsPropertyMissingSourcePropertyOfLink.class
+                                                               propertyName:@"nosuchproperty"] };
+}
+
+@end
+
+
+@interface InvalidLinkingObjectsPropertySourcePropertyNotALink : FakeObject
+@property (readonly) RLMLinkingObjects *linkingObjects;
+@property int64_t integer;
+@end
+
+@implementation InvalidLinkingObjectsPropertySourcePropertyNotALink
+
++ (NSDictionary *)linkingObjectsProperties {
+    return @{ @"linkingObjects": [RLMPropertyDescriptor descriptorWithClass:InvalidLinkingObjectsPropertySourcePropertyNotALink.class
+                                                               propertyName:@"integer"] };
+}
+
+@end
+
+
+@interface InvalidLinkingObjectsPropertySourcePropertyLinksElsewhere : FakeObject
+@property (readonly) RLMLinkingObjects *linkingObjects;
+@property IntObject *link;
+@end
+
+@implementation InvalidLinkingObjectsPropertySourcePropertyLinksElsewhere
+
++ (NSDictionary *)linkingObjectsProperties {
+    return @{ @"linkingObjects": [RLMPropertyDescriptor descriptorWithClass:InvalidLinkingObjectsPropertySourcePropertyLinksElsewhere.class
+                                                               propertyName:@"link"] };
+}
+
+@end
+
+
 @interface SchemaTests : RLMMultiProcessTestCase
 @end
 
 @implementation SchemaTests
 
-- (void)testNoSchemaForUnpersistedObjectClasses {
++ (void)tearDown
+{
+    RLMSetTreatFakeObjectAsRLMObject(NO);
+    [super tearDown];
+}
+
+- (void)testNoSchemaForUnmanagedObjectClasses {
     RLMSchema *schema = [RLMSchema sharedSchema];
     XCTAssertNil([schema schemaForClassName:@"RLMObject"]);
     XCTAssertNil([schema schemaForClassName:@"RLMObjectBase"]);
@@ -151,7 +278,8 @@ RLM_ARRAY_TYPE(SchemaTestClassSecondChild)
 
 - (void)testSchemaWithObjectClasses {
     RLMSchema *schema = [RLMSchema schemaWithObjectClasses:@[RLMDynamicObject.class, StringObject.class]];
-    XCTAssertEqualObjects((@[@"RLMDynamicObject", @"StringObject"]), [schema.objectSchema valueForKey:@"className"]);
+    XCTAssertEqualObjects((@[@"RLMDynamicObject", @"StringObject"]),
+                          [[schema.objectSchema valueForKey:@"className"] sortedArrayUsingSelector:@selector(compare:)]);
     XCTAssertNil([RLMSchema.sharedSchema schemaForClassName:@"RLMDynamicObject"]);
 }
 
@@ -172,7 +300,7 @@ RLM_ARRAY_TYPE(SchemaTestClassSecondChild)
     auto checkSchema = ^(RLMSchema *schema, NSString *className, NSDictionary *properties) {
         RLMObjectSchema *objectSchema = schema[className];
         XCTAssertEqualObjects(className, objectSchema.className);
-        XCTAssertEqualObjects(className, [objectSchema.standaloneClass className]);
+        XCTAssertEqualObjects(className, [objectSchema.unmanagedClass className]);
         XCTAssertEqualObjects(className, [objectSchema.accessorClass className]);
 
         XCTAssertEqual(objectSchema.properties.count, properties.count);
@@ -189,8 +317,7 @@ RLM_ARRAY_TYPE(SchemaTestClassSecondChild)
         for (Class cls : testClasses) {
             // Ensure that the className method isn't used during schema init
             // as it may not be overriden yet
-            NSString *className = NSStringFromClass(cls);
-            Class metaClass = objc_getMetaClass(className.UTF8String);
+            Class metaClass = object_getClass(cls);
             IMP imp = imp_implementationWithBlock(^{ return nil; });
             class_replaceMethod(metaClass, @selector(className), imp, "@:");
         }
@@ -205,7 +332,16 @@ RLM_ARRAY_TYPE(SchemaTestClassSecondChild)
 
         for (RLMObjectSchema *objectSchema in objectSchemas) {
             objectSchema.accessorClass = RLMAccessorClassForObjectClass(objectSchema.objectClass, objectSchema, @"RLMAccessor_");
-            objectSchema.standaloneClass = RLMStandaloneAccessorClassForObjectClass(objectSchema.objectClass, objectSchema);
+            objectSchema.unmanagedClass = RLMUnmanagedAccessorClassForObjectClass(objectSchema.objectClass, objectSchema);
+        }
+
+        for (Class cls : testClasses) {
+            NSString *className = NSStringFromClass(cls);
+
+            // Restore the className method
+            Class metaClass = object_getClass(cls);
+            IMP imp = imp_implementationWithBlock(^{ return className; });
+            class_replaceMethod(metaClass, @selector(className), imp, "@:");
         }
 
         // Verify that each class has the correct properties and className
@@ -222,14 +358,6 @@ RLM_ARRAY_TYPE(SchemaTestClassSecondChild)
                                                       @"secondChild": @"SchemaTestClassSecondChild",
                                                       @"secondChildArray": @"SchemaTestClassSecondChild"});
 
-        for (Class cls : testClasses) {
-            NSString *className = NSStringFromClass(cls);
-
-            // Restore the className method
-            Class metaClass = objc_getMetaClass(className.UTF8String);
-            IMP imp = imp_implementationWithBlock(^{ return className; });
-            class_replaceMethod(metaClass, @selector(className), imp, "@:");
-        }
 
         // Test creating objects of each class
         [self deleteFiles];
@@ -256,6 +384,7 @@ RLM_ARRAY_TYPE(SchemaTestClassSecondChild)
     // on, these tests should be altered to verify all types.
     
     NSArray *expectedTypes = @[@"AllTypesObject",
+                               @"LinkToAllTypesObject",
                                @"StringObject",
                                @"IntObject"];
     
@@ -271,7 +400,7 @@ RLM_ARRAY_TYPE(SchemaTestClassSecondChild)
     schema.objectSchema = objectSchema;
 
     // create realm with schema
-    [self realmWithTestPathAndSchema:schema];
+    @autoreleasepool { [self realmWithTestPathAndSchema:schema]; }
 
     // get dynamic realm and extract schema
     RLMRealm *realm = [self realmWithTestPathAndSchema:nil];
@@ -336,13 +465,12 @@ RLM_ARRAY_TYPE(SchemaTestClassSecondChild)
     RLMSchema *schema = [[RLMSchema alloc] init];
     schema.objectSchema = objectSchema;
 
-#   define OptionalString @"\t\t\toptional = YES;\n"
-
     XCTAssertEqualObjects(schema.description, @"Schema {\n"
                                               @"\tAllTypesObject {\n"
                                               @"\t\tboolCol {\n"
                                               @"\t\t\ttype = bool;\n"
                                               @"\t\t\tobjectClassName = (null);\n"
+                                              @"\t\t\tlinkOriginPropertyName = (null);\n"
                                               @"\t\t\tindexed = NO;\n"
                                               @"\t\t\tisPrimary = NO;\n"
                                               @"\t\t\toptional = NO;\n"
@@ -350,6 +478,7 @@ RLM_ARRAY_TYPE(SchemaTestClassSecondChild)
                                               @"\t\tintCol {\n"
                                               @"\t\t\ttype = int;\n"
                                               @"\t\t\tobjectClassName = (null);\n"
+                                              @"\t\t\tlinkOriginPropertyName = (null);\n"
                                               @"\t\t\tindexed = NO;\n"
                                               @"\t\t\tisPrimary = NO;\n"
                                               @"\t\t\toptional = NO;\n"
@@ -357,6 +486,7 @@ RLM_ARRAY_TYPE(SchemaTestClassSecondChild)
                                               @"\t\tfloatCol {\n"
                                               @"\t\t\ttype = float;\n"
                                               @"\t\t\tobjectClassName = (null);\n"
+                                              @"\t\t\tlinkOriginPropertyName = (null);\n"
                                               @"\t\t\tindexed = NO;\n"
                                               @"\t\t\tisPrimary = NO;\n"
                                               @"\t\t\toptional = NO;\n"
@@ -364,6 +494,7 @@ RLM_ARRAY_TYPE(SchemaTestClassSecondChild)
                                               @"\t\tdoubleCol {\n"
                                               @"\t\t\ttype = double;\n"
                                               @"\t\t\tobjectClassName = (null);\n"
+                                              @"\t\t\tlinkOriginPropertyName = (null);\n"
                                               @"\t\t\tindexed = NO;\n"
                                               @"\t\t\tisPrimary = NO;\n"
                                               @"\t\t\toptional = NO;\n"
@@ -371,27 +502,31 @@ RLM_ARRAY_TYPE(SchemaTestClassSecondChild)
                                               @"\t\tstringCol {\n"
                                               @"\t\t\ttype = string;\n"
                                               @"\t\t\tobjectClassName = (null);\n"
+                                              @"\t\t\tlinkOriginPropertyName = (null);\n"
                                               @"\t\t\tindexed = NO;\n"
                                               @"\t\t\tisPrimary = NO;\n"
-                                              OptionalString
+                                              @"\t\t\toptional = NO;\n"
                                               @"\t\t}\n"
                                               @"\t\tbinaryCol {\n"
                                               @"\t\t\ttype = data;\n"
                                               @"\t\t\tobjectClassName = (null);\n"
+                                              @"\t\t\tlinkOriginPropertyName = (null);\n"
                                               @"\t\t\tindexed = NO;\n"
                                               @"\t\t\tisPrimary = NO;\n"
-                                              OptionalString
+                                              @"\t\t\toptional = NO;\n"
                                               @"\t\t}\n"
                                               @"\t\tdateCol {\n"
                                               @"\t\t\ttype = date;\n"
                                               @"\t\t\tobjectClassName = (null);\n"
+                                              @"\t\t\tlinkOriginPropertyName = (null);\n"
                                               @"\t\t\tindexed = NO;\n"
                                               @"\t\t\tisPrimary = NO;\n"
-                                              OptionalString
+                                              @"\t\t\toptional = NO;\n"
                                               @"\t\t}\n"
                                               @"\t\tcBoolCol {\n"
                                               @"\t\t\ttype = bool;\n"
                                               @"\t\t\tobjectClassName = (null);\n"
+                                              @"\t\t\tlinkOriginPropertyName = (null);\n"
                                               @"\t\t\tindexed = NO;\n"
                                               @"\t\t\tisPrimary = NO;\n"
                                               @"\t\t\toptional = NO;\n"
@@ -399,13 +534,7 @@ RLM_ARRAY_TYPE(SchemaTestClassSecondChild)
                                               @"\t\tlongCol {\n"
                                               @"\t\t\ttype = int;\n"
                                               @"\t\t\tobjectClassName = (null);\n"
-                                              @"\t\t\tindexed = NO;\n"
-                                              @"\t\t\tisPrimary = NO;\n"
-                                              @"\t\t\toptional = NO;\n"
-                                              @"\t\t}\n"
-                                              @"\t\tmixedCol {\n"
-                                              @"\t\t\ttype = any;\n"
-                                              @"\t\t\tobjectClassName = (null);\n"
+                                              @"\t\t\tlinkOriginPropertyName = (null);\n"
                                               @"\t\t\tindexed = NO;\n"
                                               @"\t\t\tisPrimary = NO;\n"
                                               @"\t\t\toptional = NO;\n"
@@ -413,32 +542,42 @@ RLM_ARRAY_TYPE(SchemaTestClassSecondChild)
                                               @"\t\tobjectCol {\n"
                                               @"\t\t\ttype = object;\n"
                                               @"\t\t\tobjectClassName = StringObject;\n"
+                                              @"\t\t\tlinkOriginPropertyName = (null);\n"
                                               @"\t\t\tindexed = NO;\n"
                                               @"\t\t\tisPrimary = NO;\n"
                                               @"\t\t\toptional = YES;\n"
                                               @"\t\t}\n"
-                                              @"\t}\n"
-                                              @"\tStringObject {\n"
-                                              @"\t\tstringCol {\n"
-                                              @"\t\t\ttype = string;\n"
-                                              @"\t\t\tobjectClassName = (null);\n"
+                                              @"\t\tlinkingObjectsCol {\n"
+                                              @"\t\t\ttype = linking objects;\n"
+                                              @"\t\t\tobjectClassName = LinkToAllTypesObject;\n"
+                                              @"\t\t\tlinkOriginPropertyName = allTypesCol;\n"
                                               @"\t\t\tindexed = NO;\n"
                                               @"\t\t\tisPrimary = NO;\n"
-                                              OptionalString
+                                              @"\t\t\toptional = NO;\n"
                                               @"\t\t}\n"
                                               @"\t}\n"
                                               @"\tIntObject {\n"
                                               @"\t\tintCol {\n"
                                               @"\t\t\ttype = int;\n"
                                               @"\t\t\tobjectClassName = (null);\n"
+                                              @"\t\t\tlinkOriginPropertyName = (null);\n"
                                               @"\t\t\tindexed = NO;\n"
                                               @"\t\t\tisPrimary = NO;\n"
                                               @"\t\t\toptional = NO;\n"
                                               @"\t\t}\n"
                                               @"\t}\n"
+                                              @"\tStringObject {\n"
+                                              @"\t\tstringCol {\n"
+                                              @"\t\t\ttype = string;\n"
+                                              @"\t\t\tobjectClassName = (null);\n"
+                                              @"\t\t\tlinkOriginPropertyName = (null);\n"
+                                              @"\t\t\tindexed = NO;\n"
+                                              @"\t\t\tisPrimary = NO;\n"
+                                              @"\t\t\toptional = YES;\n"
+                                              @"\t\t}\n"
+                                              @"\t}\n"
                                               @"}");
 
-#undef OptionalString
 }
 
 - (void)testClassWithDuplicateProperties
@@ -456,7 +595,7 @@ RLM_ARRAY_TYPE(SchemaTestClassSecondChild)
     RLMSchema *schema = [[RLMSchema alloc] init];
     schema.objectSchema = @[objectSchema];
     RLMAssertThrowsWithReasonMatching([self realmWithTestPathAndSchema:schema],
-                                      @".*Can't index property.*double.*");
+                                      @"Property 'UnindexableProperty.unindexable' of type 'double' cannot be indexed");
 }
 
 - (void)testClassWithRequiredNullableProperties {
@@ -470,11 +609,63 @@ RLM_ARRAY_TYPE(SchemaTestClassSecondChild)
 }
 
 - (void)testClassWithInvalidNSNumberProtocolProperty {
-    RLMAssertThrowsWithReasonMatching([RLMObjectSchema schemaForObjectClass:InvalidNSNumberProtocolObject.class], @"RLMFastEnumerable' is not supported as an NSNumber object type.");
+    RLMAssertThrowsWithReasonMatching([RLMObjectSchema schemaForObjectClass:InvalidNSNumberProtocolObject.class],
+                                      @"Property 'number' is of type 'NSNumber<NSFastEnumeration>' which is not a supported NSNumber object type.");
 }
 
 - (void)testClassWithInvalidNSNumberNoProtocolProperty {
-    RLMAssertThrowsWithReasonMatching([RLMObjectSchema schemaForObjectClass:InvalidNSNumberNoProtocolObject.class], @"NSNumber properties require a protocol defining the contained type");
+    RLMAssertThrowsWithReasonMatching([RLMObjectSchema schemaForObjectClass:InvalidNSNumberNoProtocolObject.class], @"Property 'number' requires a protocol defining the contained type");
+}
+
+- (void)testClassWithReadWriteLinkingObjectsProperty {
+    RLMAssertThrowsWithReasonMatching([RLMObjectSchema schemaForObjectClass:InvalidReadWriteLinkingObjectsProperty.class],
+                                      @"Property 'linkingObjects' must be declared as readonly .* linking objects");
+}
+
+- (void)testClassWithInvalidLinkingObjectsPropertiesMethod {
+    RLMAssertThrowsWithReasonMatching([RLMObjectSchema schemaForObjectClass:InvalidLinkingObjectsPropertiesMethod.class],
+                                      @"Property 'linkingObjects' .* but \\+linkingObjectsProperties .* class or property");
+}
+
+- (void)testClassWithLinkingObjectsPropertyWithProtocol {
+    RLMObjectSchema *objectSchema = [RLMObjectSchema schemaForObjectClass:ValidLinkingObjectsPropertyWithProtocol.class];
+    XCTAssertEqual(objectSchema[@"linkingObjects"].type, RLMPropertyTypeLinkingObjects);
+}
+
+- (void)testClassWithInvalidLinkingObjectsPropertyProtocol {
+    RLMAssertThrowsWithReasonMatching([RLMObjectSchema schemaForObjectClass:InvalidLinkingObjectsPropertyProtocol.class],
+                                      @"Property 'linkingObjects' .* type RLMLinkingObjects<NotARealClass>.*conflicting class name.*'SchemaTestsLinkSource'");
+}
+
+- (void)testClassWithInvalidLinkingObjectsPropertyMissingSourcePropertyOfLink {
+    RLMSetTreatFakeObjectAsRLMObject(YES);
+    RLMRealmConfiguration *config = [RLMRealmConfiguration defaultConfiguration];
+    config.customSchema = [RLMSchema schemaWithObjectClasses:@[ InvalidLinkingObjectsPropertyMissingSourcePropertyOfLink.class ]];
+    RLMAssertThrowsWithReasonMatching([RLMRealm realmWithConfiguration:config error:nil],
+                                      @"Property 'InvalidLinkingObjectsPropertyMissingSourcePropertyOfLink.nosuchproperty' declared as origin of linking objects property 'InvalidLinkingObjectsPropertyMissingSourcePropertyOfLink.linkingObjects' does not exist");
+}
+
+- (void)testClassWithInvalidLinkingObjectsPropertySourcePropertyNotALink {
+    RLMSetTreatFakeObjectAsRLMObject(YES);
+    RLMRealmConfiguration *config = [RLMRealmConfiguration defaultConfiguration];
+    config.customSchema = [RLMSchema schemaWithObjectClasses:@[ InvalidLinkingObjectsPropertySourcePropertyNotALink.class ]];
+    RLMAssertThrowsWithReasonMatching([RLMRealm realmWithConfiguration:config error:nil],
+                                      @"Property 'InvalidLinkingObjectsPropertySourcePropertyNotALink.integer' declared as origin of linking objects property 'InvalidLinkingObjectsPropertySourcePropertyNotALink.linkingObjects' is not a link");
+}
+
+- (void)testClassWithInvalidLinkingObjectsPropertySourcePropertysLinkElsewhere {
+    RLMSetTreatFakeObjectAsRLMObject(YES);
+    RLMRealmConfiguration *config = [RLMRealmConfiguration defaultConfiguration];
+    config.customSchema = [RLMSchema schemaWithObjectClasses:@[ InvalidLinkingObjectsPropertySourcePropertyLinksElsewhere.class, IntObject.class ]];
+    RLMAssertThrowsWithReasonMatching([RLMRealm realmWithConfiguration:config error:nil],
+                                      @"Property 'InvalidLinkingObjectsPropertySourcePropertyLinksElsewhere.link' declared as origin of linking objects property 'InvalidLinkingObjectsPropertySourcePropertyLinksElsewhere.linkingObjects' links to type 'IntObject'");
+}
+
+- (void)testMixedIsRejected {
+    RLMSetTreatFakeObjectAsRLMObject(YES);
+    RLMRealmConfiguration *config = [RLMRealmConfiguration defaultConfiguration];
+    RLMAssertThrowsWithReasonMatching(config.objectClasses = @[[MixedProperty class]],
+                                      @"Property 'mixed' is declared as 'id'.*");
 }
 
 // Can't spawn child processes on iOS
@@ -493,12 +684,15 @@ RLM_ARRAY_TYPE(SchemaTestClassSecondChild)
     @autoreleasepool {
         RLMRealm *realm = [RLMRealm realmWithConfiguration:config error:nil];
         XCTAssertEqual(1U, realm.schema.objectSchema.count);
+        XCTAssertNoThrow(realm.schema[@"IntObject"]);
     }
 
     config.objectClasses = @[IntObject.class, StringObject.class];
     @autoreleasepool {
         RLMRealm *realm = [RLMRealm realmWithConfiguration:config error:nil];
         XCTAssertEqual(2U, realm.schema.objectSchema.count);
+        XCTAssertNoThrow(realm.schema[@"IntObject"]);
+        XCTAssertNoThrow(realm.schema[@"StringObject"]);
     }
 
     // Verify that the shared schema generated afterwards is valid
@@ -510,13 +704,33 @@ RLM_ARRAY_TYPE(SchemaTestClassSecondChild)
         for (RLMObjectSchema *objectSchema in realm.schema.objectSchema) {
             const char *actualClassName = class_getName(objectSchema.objectClass);
             XCTAssertEqual(nullptr, strstr(actualClassName, "RLMAccessor"));
-            XCTAssertEqual(nullptr, strstr(actualClassName, "RLMStandalone"));
+            XCTAssertEqual(nullptr, strstr(actualClassName, "RLMUnmanaged"));
         }
 
         // Shared schema shouldn't have duplicate entries
         XCTAssertEqual(realm.schema.objectSchema.count,
                        [NSSet setWithArray:[realm.schema.objectSchema valueForKey:@"className"]].count);
+
+        // Shared schema should have the ones that were used in the subsets
+        XCTAssertNoThrow(realm.schema[@"IntObject"]);
+        XCTAssertNoThrow(realm.schema[@"StringObject"]);
     }
+}
+
+- (void)testPartialSharedSchemaInitInheritance {
+    if (self.isParent) {
+        RLMRunChildAndWait();
+        return;
+    }
+
+    RLMRealmConfiguration *config = [RLMRealmConfiguration defaultConfiguration];
+    config.objectClasses = @[NumberObject.class];
+
+    RLMRealm *realm = [RLMRealm realmWithConfiguration:config error:nil];
+    XCTAssertEqual(1U, realm.schema.objectSchema.count);
+    XCTAssertEqualObjects(@"NumberObject", [[[[NumberObject alloc] init] objectSchema] className]);
+    // Verify that child class doesn't use the parent class's schema
+    XCTAssertEqualObjects(@"NumberDefaultsObject", [[[[NumberDefaultsObject alloc] init] objectSchema] className]);
 }
 
 - (void)testMultipleProcessesTryingToInitializeSchema {
@@ -568,7 +782,7 @@ RLM_ARRAY_TYPE(SchemaTestClassSecondChild)
         }
     }];
     [self waitForExpectationsWithTimeout:10.0 handler:nil];
-    [realm removeNotification:token];
+    [token stop];
 
     // Release the write transaction and let them run
     [realm cancelWriteTransaction];
@@ -712,6 +926,57 @@ RLM_ARRAY_TYPE(SchemaTestClassSecondChild)
 
     // Should have been left in a sensible state after the errors
     XCTAssertEqual(1, [[IntObject allObjectsInRealm:realm].firstObject intCol]);
+}
+
+- (void)testInsertingColumnsInBackgroundProcess {
+    RLMRealmConfiguration *config = [RLMRealmConfiguration defaultConfiguration];
+    config.schemaMode = realm::SchemaMode::Additive;
+    if (!self.isParent) {
+        config.dynamic = true;
+        RLMRealm *realm = [RLMRealm realmWithConfiguration:config error:nil];
+        [realm beginWriteTransaction];
+        realm->_info[@"IntObject"].table()->insert_column(0, realm::type_String, "col");
+        [realm commitWriteTransaction];
+        return;
+    }
+
+    RLMRealm *realm = [RLMRealm realmWithConfiguration:config error:nil];
+    [realm transactionWithBlock:^{
+        [IntObject createInRealm:realm withValue:@[@5]];
+    }];
+
+    RLMRunChildAndWait();
+    XCTAssertEqual(5, [[IntObject allObjectsInRealm:realm].firstObject intCol]);
+    XCTAssertEqual(1U, [IntObject objectsInRealm:realm where:@"intCol = 5"].count);
+
+    __block IntObject *io = [IntObject new];
+    io.intCol = 6;
+    [realm transactionWithBlock:^{ [realm addObject:io]; }];
+    XCTAssertEqual(io.intCol, 6);
+    XCTAssertEqualObjects(io[@"intCol"], @6);
+
+    [realm transactionWithBlock:^{ io = [IntObject createInRealm:realm withValue:@[@7]]; }];
+    XCTAssertEqual(io.intCol, 7);
+
+    [realm transactionWithBlock:^{ io = [IntObject createInRealm:realm withValue:@{@"intCol": @8}]; }];
+    XCTAssertEqual(io.intCol, 8);
+
+    [realm transactionWithBlock:^{ io.intCol = 9; }];
+    XCTAssertEqual(io.intCol, 9);
+
+    [realm transactionWithBlock:^{ io[@"intCol"] = @10; }];
+    XCTAssertEqual(io.intCol, 10);
+
+    // Create query, add column, run query
+    RLMResults *query = [IntObject objectsInRealm:realm where:@"intCol > 5"];
+    RLMRunChildAndWait();
+    XCTAssertEqual(query.count, 3U);
+
+    // Create query, create TV, add column, reevaluate query
+    query = [IntObject objectsInRealm:realm where:@"intCol > 5"];
+    (void)[query lastObject];
+    RLMRunChildAndWait();
+    XCTAssertEqual(query.count, 3U);
 }
 #endif
 

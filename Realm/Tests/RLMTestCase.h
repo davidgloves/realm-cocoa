@@ -20,11 +20,13 @@
 #import "RLMAssertions.h"
 #import "RLMTestObjects.h"
 
+NS_ASSUME_NONNULL_BEGIN
+
 #ifdef __cplusplus
 extern "C" {
 #endif
-NSString *RLMTestRealmPath(void);
-NSString *RLMDefaultRealmPath(void);
+NSURL *RLMTestRealmURL(void);
+NSURL *RLMDefaultRealmURL(void);
 NSString *RLMRealmPathForFile(NSString *);
 NSData *RLMGenerateKey(void);
 #ifdef __cplusplus
@@ -34,19 +36,21 @@ NSData *RLMGenerateKey(void);
 @interface RLMTestCase : XCTestCase
 
 - (RLMRealm *)realmWithTestPath;
-- (RLMRealm *)realmWithTestPathAndSchema:(RLMSchema *)schema;
+- (RLMRealm *)realmWithTestPathAndSchema:(nullable RLMSchema *)schema;
 
 - (RLMRealm *)inMemoryRealmWithIdentifier:(NSString *)identifier;
-- (RLMRealm *)readOnlyRealmWithPath:(NSString *)path error:(NSError **)error;
+- (RLMRealm *)readOnlyRealmWithURL:(NSURL *)fileURL error:(NSError **)error;
 
 - (void)deleteFiles;
-- (void)deleteRealmFileAtPath:(NSString *)realmPath;
+- (void)deleteRealmFileAtURL:(NSURL *)fileURL;
 
-- (void)waitForNotification:(NSString *)expectedNote realm:(RLMRealm *)realm block:(dispatch_block_t)block;
+- (void)waitForNotification:(RLMNotification)expectedNote realm:(RLMRealm *)realm block:(dispatch_block_t)block;
 
-- (id)nonLiteralNil;
+- (nullable id)nonLiteralNil;
 
 - (void)dispatchAsync:(dispatch_block_t)block;
 - (void)dispatchAsyncAndWait:(dispatch_block_t)block;
 
 @end
+
+NS_ASSUME_NONNULL_END

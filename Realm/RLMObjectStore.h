@@ -22,7 +22,7 @@
 extern "C" {
 #endif
 
-@class RLMRealm, RLMSchema, RLMObjectSchema, RLMObjectBase, RLMResults, RLMProperty;
+@class RLMRealm, RLMSchema, RLMObjectBase, RLMResults, RLMProperty;
 
 //
 // Accessor Creation
@@ -30,9 +30,6 @@ extern "C" {
 
 // create or get cached accessors for the given schema
 void RLMRealmCreateAccessors(RLMSchema *schema);
-
-// Clear the cache of created accessor classes
-void RLMClearAccessorCache();
 
 
 //
@@ -44,9 +41,9 @@ typedef NS_OPTIONS(NSUInteger, RLMCreationOptions) {
     // If the property is a link or array property, upsert the linked objects
     // if they have a primary key, and insert them otherwise.
     RLMCreationOptionsCreateOrUpdate = 1 << 0,
-    // Allow standalone objects to be promoted to persisted objects
+    // Allow unmanaged objects to be promoted to managed objects
     // if false objects are copied during object creation
-    RLMCreationOptionsPromoteStandalone = 1 << 1,
+    RLMCreationOptionsPromoteUnmanaged = 1 << 1,
 };
 
 
@@ -78,7 +75,7 @@ RLMObjectBase *RLMCreateObjectInRealmWithValue(RLMRealm *realm, NSString *classN
 //
 
 
-// switch List<> properties from being backed by standalone RLMArrays to RLMArrayLinkView
+// switch List<> properties from being backed by unmanaged RLMArrays to RLMArrayLinkView
 void RLMInitializeSwiftAccessorGenerics(RLMObjectBase *object);
 
 #ifdef __cplusplus
@@ -89,11 +86,11 @@ namespace realm {
     template<typename T> class BasicRowExpr;
     using RowExpr = BasicRowExpr<Table>;
 }
+class RLMClassInfo;
+
 // Create accessors
-RLMObjectBase *RLMCreateObjectAccessor(RLMRealm *realm,
-                                       RLMObjectSchema *objectSchema,
+RLMObjectBase *RLMCreateObjectAccessor(RLMRealm *realm, RLMClassInfo& info,
                                        NSUInteger index) NS_RETURNS_RETAINED;
-RLMObjectBase *RLMCreateObjectAccessor(RLMRealm *realm,
-                                       RLMObjectSchema *objectSchema,
+RLMObjectBase *RLMCreateObjectAccessor(RLMRealm *realm, RLMClassInfo& info,
                                        realm::RowExpr row) NS_RETURNS_RETAINED;
 #endif

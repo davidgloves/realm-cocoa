@@ -35,17 +35,17 @@ static NSString *parentProcessBundleIdentifier()
     return identifier;
 }
 
-NSString *RLMDefaultRealmPath() {
-    return RLMRealmPathForFileAndBundleIdentifier(@"default.realm", parentProcessBundleIdentifier());
+NSURL *RLMDefaultRealmURL() {
+    return [NSURL fileURLWithPath:RLMRealmPathForFileAndBundleIdentifier(@"default.realm", parentProcessBundleIdentifier())];
 }
 
-NSString *RLMTestRealmPath() {
-    return RLMRealmPathForFileAndBundleIdentifier(@"test.realm", parentProcessBundleIdentifier());
+NSURL *RLMTestRealmURL() {
+    return [NSURL fileURLWithPath:RLMRealmPathForFileAndBundleIdentifier(@"test.realm", parentProcessBundleIdentifier())];
 }
 
-static void deleteOrThrow(NSString *path) {
+static void deleteOrThrow(NSURL *fileURL) {
     NSError *error;
-    if (![[NSFileManager defaultManager] removeItemAtPath:path error:&error]) {
+    if (![[NSFileManager defaultManager] removeItemAtURL:fileURL error:&error]) {
         if (error.code != NSFileNoSuchFileError) {
             @throw [NSException exceptionWithName:@"RLMTestException"
                                            reason:[@"Unable to delete realm: " stringByAppendingString:error.description]
@@ -56,7 +56,7 @@ static void deleteOrThrow(NSString *path) {
 
 NSData *RLMGenerateKey() {
     uint8_t buffer[64];
-    SecRandomCopyBytes(kSecRandomDefault, 64, buffer);
+    (void)SecRandomCopyBytes(kSecRandomDefault, 64, buffer);
     return [[NSData alloc] initWithBytes:buffer length:sizeof(buffer)];
 }
 
@@ -92,31 +92,8 @@ static BOOL encryptTests() {
 
     // Ensure the documents directory exists as it sometimes doesn't after
     // resetting the simulator
-    [NSFileManager.defaultManager createDirectoryAtPath:RLMDefaultRealmPath().stringByDeletingLastPathComponent
-                            withIntermediateDirectories:YES attributes:nil error:nil];
-}
-
-- (void)setUp {
-    @autoreleasepool {
-        [super setUp];
-        [self deleteFiles];
-
-        if (encryptTests()) {
-            RLMRealmConfiguration *configuration = [RLMRealmConfiguration defaultConfiguration];
-            configuration.encryptionKey = RLMGenerateKey();
-        }
-    }
-}
-
-- (void)tearDown {
-    @autoreleasepool {
-        [super tearDown];
-        if (_bgQueue) {
-            dispatch_sync(_bgQueue, ^{});
-            _bgQueue = nil;
-        }
-        [self deleteFiles];
-    }
+    [NSFileManager.defaultManager createDirectoryAtURL:RLMDefaultRealmURL().URLByDeletingLastPathComponent
+                           withIntermediateDirectories:YES attributes:nil error:nil];
 }
 
 // This ensures the shared schema is initialized outside of of a test case,
@@ -132,34 +109,55 @@ static BOOL encryptTests() {
     [self resetRealmState];
 
     // Delete Realm files
-    [self deleteRealmFileAtPath:RLMDefaultRealmPath()];
-    [self deleteRealmFileAtPath:RLMTestRealmPath()];
+    [self deleteRealmFileAtURL:RLMDefaultRealmURL()];
+    [self deleteRealmFileAtURL:RLMTestRealmURL()];
 }
 
 - (void)resetRealmState {
     [RLMRealm resetRealmState];
 }
 
-- (void)deleteRealmFileAtPath:(NSString *)path
+- (void)deleteRealmFileAtURL:(NSURL *)fileURL
 {
-    deleteOrThrow(path);
-    deleteOrThrow([path stringByAppendingString:@".lock"]);
-    deleteOrThrow([path stringByAppendingString:@".note"]);
+    deleteOrThrow(fileURL);
+    deleteOrThrow([fileURL URLByAppendingPathExtension:@"lock"]);
+    deleteOrThrow([fileURL URLByAppendingPathExtension:@"note"]);
 }
 
 - (void)invokeTest {
     @autoreleasepool {
+        [self deleteFiles];
+
+        if (encryptTests()) {
+            RLMRealmConfiguration *configuration = [RLMRealmConfiguration defaultConfiguration];
+            configuration.encryptionKey = RLMGenerateKey();
+        }
+    }
+    @autoreleasepool {
         [super invokeTest];
+    }
+    @autoreleasepool {
+        if (_bgQueue) {
+            dispatch_sync(_bgQueue, ^{});
+            _bgQueue = nil;
+        }
+        [self deleteFiles];
     }
 }
 
 - (RLMRealm *)realmWithTestPath
 {
-    return [RLMRealm realmWithPath:RLMTestRealmPath()];
+    return [RLMRealm realmWithURL:RLMTestRealmURL()];
 }
 
 - (RLMRealm *)realmWithTestPathAndSchema:(RLMSchema *)schema {
-    return [RLMRealm realmWithPath:RLMTestRealmPath() key:nil readOnly:NO inMemory:NO dynamic:YES schema:schema error:nil];
+    RLMRealmConfiguration *configuration = [RLMRealmConfiguration defaultConfiguration];
+    configuration.fileURL = RLMTestRealmURL();
+    if (schema)
+        configuration.customSchema = schema;
+    else
+        configuration.dynamic = true;
+    return [RLMRealm realmWithConfiguration:configuration error:nil];
 }
 
 - (RLMRealm *)inMemoryRealmWithIdentifier:(NSString *)identifier {
@@ -168,9 +166,9 @@ static BOOL encryptTests() {
     return [RLMRealm realmWithConfiguration:configuration error:nil];
 }
 
-- (RLMRealm *)readOnlyRealmWithPath:(NSString *)path error:(NSError **)error {
+- (RLMRealm *)readOnlyRealmWithURL:(NSURL *)fileURL error:(NSError **)error {
     RLMRealmConfiguration *configuration = [RLMRealmConfiguration defaultConfiguration];
-    configuration.path = path;
+    configuration.fileURL = fileURL;
     configuration.readOnly = true;
     return [RLMRealm realmWithConfiguration:configuration error:error];
 }
@@ -197,7 +195,7 @@ static BOOL encryptTests() {
     // wait for queue to finish
     dispatch_sync(queue, ^{});
 
-    [realm removeNotification:token];
+    [token stop];
 }
 
 - (void)dispatchAsync:(dispatch_block_t)block {

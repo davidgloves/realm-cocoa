@@ -21,15 +21,18 @@
 #import "RLMObjectSchema_Private.hpp"
 #import "RLMObjectStore.h"
 #import "RLMObject_Private.hpp"
-#import "RLMPredicateUtil.h"
-#import "RLMRealmConfiguration_Private.h"
+#import "RLMRealmConfiguration_Private.hpp"
 #import "RLMRealm_Private.hpp"
 #import "RLMSchema_Private.h"
 
+#import "shared_realm.hpp"
+
+#import <realm/descriptor.hpp>
 #import <realm/group.hpp>
 
 #import <atomic>
 #import <memory>
+#import <objc/runtime.h>
 #import <vector>
 
 RLM_ARRAY_TYPE(KVOObject)
@@ -134,6 +137,30 @@ RLM_ARRAY_TYPE(KVOLinkObject1)
 @end
 @implementation ObjectWithNoLinksToOrFrom
 @end
+
+// An object which removes a KVO registration when it's deallocated, for use
+// as an associated object
+@interface KVOUnregisterHelper : NSObject
+@end
+@implementation KVOUnregisterHelper {
+    __unsafe_unretained id _obj;
+    __unsafe_unretained id _observer;
+    NSString *_keyPath;
+}
+
++ (void)automaticallyUnregister:(id)observer object:(id)obj keyPath:(NSString *)keyPath {
+    KVOUnregisterHelper *helper = [self new];
+    helper->_observer = observer;
+    helper->_obj = obj;
+    helper->_keyPath = keyPath;
+    objc_setAssociatedObject(obj, (__bridge void *)helper, helper, OBJC_ASSOCIATION_RETAIN);
+}
+
+- (void)dealloc {
+    [_obj removeObserver:_observer forKeyPath:_keyPath];
+}
+@end
+
 
 @interface KVOTests : RLMTestCase
 // get an object that should be observed for the given object being mutated
@@ -1002,10 +1029,10 @@ public:
 //}
 @end
 
-// Run tests on a standalone RLMObject instance
-@interface KVOStandaloneObjectTests : KVOTests
+// Run tests on an unmanaged RLMObject instance
+@interface KVOUnmanagedObjectTests : KVOTests
 @end
-@implementation KVOStandaloneObjectTests
+@implementation KVOUnmanagedObjectTests
 - (id)createObject {
     static int pk = 0;
     KVOObject *obj = [KVOObject new];
@@ -1050,20 +1077,27 @@ public:
     XCTAssertNoThrow([obj.arrayCol removeObserver:self forKeyPath:RLMInvalidatedKey context:0]);
 }
 
+- (void)testUnregisteringViaAnAssociatedObject {
+    @autoreleasepool {
+        __attribute__((objc_precise_lifetime)) KVOObject *obj = [self createObject];
+        [obj addObserver:self forKeyPath:@"boolCol" options:0 context:0];
+        [KVOUnregisterHelper automaticallyUnregister:self object:obj keyPath:@"boolCol"];
+    }
+    // Throws if the unregistration doesn't succeed
+}
+
 @end
 
-// Run tests on a persisted object, modifying the actual object instance being
+// Run tests on a managed object, modifying the actual object instance being
 // observed
-@interface KVOPersistedObjectTests : KVOTests
+@interface KVOManagedObjectTests : KVOTests
 @property (nonatomic, strong) RLMRealm *realm;
 @end
 
-@implementation KVOPersistedObjectTests
+@implementation KVOManagedObjectTests
 - (void)setUp {
     [super setUp];
-    RLMRealmConfiguration *configuration = [[RLMRealmConfiguration alloc] init];
-    configuration.inMemoryIdentifier = @"test";
-    _realm = [RLMRealm realmWithConfiguration:configuration error:nil];
+    _realm = [self getRealm];
     [_realm beginWriteTransaction];
 }
 
@@ -1071,6 +1105,13 @@ public:
     [self.realm cancelWriteTransaction];
     self.realm = nil;
     [super tearDown];
+}
+
+- (RLMRealm *)getRealm {
+    RLMRealmConfiguration *configuration = [[RLMRealmConfiguration alloc] init];
+    configuration.inMemoryIdentifier = @"test";
+    configuration.schemaMode = realm::SchemaMode::Additive;
+    return [RLMRealm realmWithConfiguration:configuration error:nil];
 }
 
 - (id)createObject {
@@ -1261,15 +1302,28 @@ public:
     XCTAssertNoThrow([array addObserver:self forKeyPath:RLMInvalidatedKey options:0 context:0]);
     XCTAssertNoThrow([array removeObserver:self forKeyPath:RLMInvalidatedKey context:0]);
 }
+
+- (void)testInvalidOperationOnObservedArray {
+    KVOLinkObject2 *obj = [self createLinkObject];
+    KVOLinkObject1 *linked = obj.obj;
+    [obj.array addObject:linked];
+    KVORecorder r(self, obj, @"array");
+    XCTAssertThrows([obj.array exchangeObjectAtIndex:2 withObjectAtIndex:3]);
+    // A KVO notification is still sent to observers on the same thread since we
+    // can't cancel willChange, but the data is not very meaningful so don't check it
+    if (!self.collapsesNotifications) {
+        AssertNotification(r);
+    }
+}
 @end
 
 // Mutate a different accessor backed by the same row as the accessor being observed
-@interface KVOMultipleAccessorsTests : KVOPersistedObjectTests
+@interface KVOMultipleAccessorsTests : KVOManagedObjectTests
 @end
 @implementation KVOMultipleAccessorsTests
 - (id)observableForObject:(id)value {
     if (RLMObject *obj = RLMDynamicCast<RLMObject>(value)) {
-        RLMObject *copy = [[obj.objectSchema.accessorClass alloc] initWithRealm:obj.realm schema:obj.objectSchema];
+        RLMObject *copy = RLMCreateManagedAccessor(obj.objectSchema.accessorClass, obj.realm, obj->_info);
         copy->_row = obj->_row;
         return copy;
     }
@@ -1284,6 +1338,28 @@ public:
 
 - (void)testIgnoredProperty {
     // ignored properties do not notify other accessors for the same row
+}
+
+- (void)testAddOrUpdate {
+    KVOObject *obj = [self createObject];
+    KVOObject *obj2 = [[KVOObject alloc] initWithValue:obj];
+
+    KVORecorder r(self, obj, @"boolCol");
+    obj2.boolCol = true;
+    XCTAssertTrue(r.empty());
+    [self.realm addOrUpdateObject:obj2];
+    AssertChanged(r, @NO, @YES);
+}
+
+- (void)testCreateOrUpdate {
+    KVOObject *obj = [self createObject];
+    KVOObject *obj2 = [[KVOObject alloc] initWithValue:obj];
+
+    KVORecorder r(self, obj, @"boolCol");
+    obj2.boolCol = true;
+    XCTAssertTrue(r.empty());
+    [KVOObject createOrUpdateInRealm:self.realm withValue:obj2];
+    AssertChanged(r, @NO, @YES);
 }
 
 // The following tests aren't really multiple-accessor-specific, but they're
@@ -1477,8 +1553,8 @@ public:
 @end
 
 // Observing an object from a different RLMRealm instance backed by the same
-// row as the persisted object being mutated
-@interface KVOMultipleRealmsTests : KVOPersistedObjectTests
+// row as the managed object being mutated
+@interface KVOMultipleRealmsTests : KVOManagedObjectTests
 @property RLMRealm *secondaryRealm;
 @end
 
@@ -1501,9 +1577,9 @@ public:
     [self.secondaryRealm refresh];
 
     if (RLMObject *obj = RLMDynamicCast<RLMObject>(value)) {
-        RLMObject *copy = [[obj.objectSchema.accessorClass alloc] initWithRealm:self.secondaryRealm
-                                                                         schema:self.secondaryRealm.schema[obj.objectSchema.className]];
-        copy->_row = (*copy.objectSchema.table)[obj->_row.get_index()];
+        RLMObject *copy = RLMCreateManagedAccessor(obj.objectSchema.accessorClass, self.secondaryRealm,
+                                                   &self.secondaryRealm->_info[obj.objectSchema.className]);
+        copy->_row = (*copy->_info->table())[obj->_row.get_index()];
         return copy;
     }
     else if (RLMArray *array = RLMDynamicCast<RLMArray>(value)) {
@@ -1616,19 +1692,110 @@ public:
 - (void)testInsertNewTables {
     KVOObject *obj = [self createObject];
 
-    {
-        KVORecorder r(self, obj, @"boolCol");
+    KVORecorder r1(self, obj, @"boolCol");
+    KVORecorder r2(self, obj, @"int32Col");
 
-        // Add tables before the observed one so that the observed one's index changes
-        realm::Group *group = self.realm->_realm->read_group();
-        realm::TableRef table1 = group->insert_table(5, "new table");
-        realm::TableRef table2 = group->insert_table(0, "new table 2");
-        table1->add_column(realm::type_Int, "col");
-        table2->add_column(realm::type_Int, "col");
+    obj.boolCol = YES;
 
-        obj.boolCol = YES;
-        AssertChanged(r, @NO, @YES);
-    }
+    // Add tables before the observed one so that the observed one's index changes
+    realm::Group &group = self.realm->_realm->read_group();
+    realm::TableRef table1 = group.insert_table(5, "new table");
+    realm::TableRef table2 = group.insert_table(0, "new table 2");
+    table1->add_column(realm::type_Int, "col");
+    table2->add_column(realm::type_Int, "col");
+
+    obj.int32Col = 3;
+    AssertChanged(r1, @NO, @YES);
+    AssertChanged(r2, @2, @3);
+}
+
+- (void)testInsertNewColumns {
+    KVOObject *obj = [self createObject];
+
+    KVORecorder r1(self, obj, @"boolCol");
+    KVORecorder r2(self, obj, @"int32Col");
+    auto ndx = obj->_info->tableColumn(@"int32Col");
+
+    // Add a column before the observed one so that the observed one's index changes
+    obj.boolCol = YES;
+    auto& table = *obj->_info->table();
+    table.insert_column(0, realm::type_Binary, "new col");
+    obj->_row.set_int(ndx + 1, 3); // can't use the accessor after a local schema change
+
+    AssertChanged(r1, @NO, @YES);
+    AssertChanged(r2, @2, @3);
+}
+
+- (void)testMoveObservedColumnBeforeChange {
+    KVOObject *obj = [self createObject];
+    auto ndx = obj->_info->tableColumn(@"boolCol");
+
+    KVORecorder r(self, obj, @"boolCol");
+    auto& table = *obj->_info->table();
+    realm::_impl::TableFriend::move_column(*table.get_descriptor(), ndx, 0);
+    obj->_row.set_bool(0, true); // can't use the accessor after a local schema change
+    AssertChanged(r, @NO, @YES);
+}
+
+- (void)testMoveObservedColumnAfterChange {
+    KVOObject *obj = [self createObject];
+    auto ndx = obj->_info->tableColumn(@"boolCol");
+
+    KVORecorder r(self, obj, @"boolCol");
+    obj.boolCol = YES;
+    realm::_impl::TableFriend::move_column(*obj->_info->table()->get_descriptor(), ndx, 0);
+    AssertChanged(r, @NO, @YES);
+}
+
+- (void)testShiftObservedColumnBeforeChange {
+    KVOObject *obj = [self createObject];
+    auto ndx = obj->_info->tableColumn(@"boolCol");
+
+    KVORecorder r(self, obj, @"boolCol");
+    obj->_info->table()->insert_column(0, realm::type_Binary, "new col");
+    obj->_row.set_bool(ndx + 1, true); // can't use the accessor after a local schema change
+    AssertChanged(r, @NO, @YES);
+}
+
+- (void)testShiftObservedColumnAfterChange {
+    KVOObject *obj = [self createObject];
+
+    KVORecorder r(self, obj, @"boolCol");
+    obj.boolCol = YES;
+    obj->_info->table()->insert_column(0, realm::type_Binary, "new col");
+    AssertChanged(r, @NO, @YES);
 }
 @end
 
+// Test with the table column order not matching the order of the properties
+@interface KVOManagedObjectWithReorderedPropertiesTests : KVOManagedObjectTests
+@end
+
+@implementation KVOManagedObjectWithReorderedPropertiesTests
+- (RLMRealm *)getRealm {
+    // Initialize the file with the properties in reverse order, then re-open
+    // with it in the normal order while the reversed one is still open (as
+    // otherwise it'll recreate the file due to being in-memory)
+    RLMSchema *schema = [RLMSchema new];
+    schema.objectSchema = @[[self reverseProperties:KVOObject.sharedSchema],
+                            [self reverseProperties:KVOLinkObject1.sharedSchema],
+                            [self reverseProperties:KVOLinkObject2.sharedSchema]];
+
+    RLMRealmConfiguration *configuration = [[RLMRealmConfiguration alloc] init];
+    configuration.cache = false;
+    configuration.inMemoryIdentifier = @"test";
+    configuration.customSchema = schema;
+    RLMRealm *reversedRealm = [RLMRealm realmWithConfiguration:configuration error:nil];
+
+    configuration.customSchema = nil;
+    RLMRealm *realm = [RLMRealm realmWithConfiguration:configuration error:nil];
+    XCTAssertNotEqualObjects(realm.schema, reversedRealm.schema);
+    return realm;
+}
+
+- (RLMObjectSchema *)reverseProperties:(RLMObjectSchema *)source {
+    RLMObjectSchema *objectSchema = [source copy];
+    objectSchema.properties = objectSchema.properties.reverseObjectEnumerator.allObjects;
+    return objectSchema;
+}
+@end

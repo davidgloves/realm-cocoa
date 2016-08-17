@@ -36,8 +36,7 @@
     // Object types
     XCTAssertEqual((int)RLMPropertyTypeString,  (int)realm::type_String,      @"String");
     XCTAssertEqual((int)RLMPropertyTypeData,    (int)realm::type_Binary,      @"Binary");
-    XCTAssertEqual((int)RLMPropertyTypeAny,     (int)realm::type_Mixed,       @"Mixed");
-    XCTAssertEqual((int)RLMPropertyTypeDate,    (int)realm::type_DateTime,    @"Date");
+    XCTAssertEqual((int)RLMPropertyTypeDate,    (int)realm::type_Timestamp,   @"Date");
     
     // Array/Linked object types
     XCTAssertEqual((int)RLMPropertyTypeObject,  (int)realm::type_Link,        @"Link");
@@ -50,7 +49,6 @@
     XCTAssertEqualObjects(RLMTypeToString(RLMPropertyTypeData),     @"data",    @"dataType");
     XCTAssertEqualObjects(RLMTypeToString(RLMPropertyTypeDouble),   @"double",  @"doubleType");
     XCTAssertEqualObjects(RLMTypeToString(RLMPropertyTypeFloat),    @"float",   @"floatType");
-    XCTAssertEqualObjects(RLMTypeToString(RLMPropertyTypeAny),      @"any",     @"anyType");
     XCTAssertEqualObjects(RLMTypeToString(RLMPropertyTypeObject),   @"object",  @"objectType");
     XCTAssertEqualObjects(RLMTypeToString(RLMPropertyTypeArray),    @"array",   @"arrayType");
 
@@ -67,7 +65,7 @@
 
     AllIntSizesObject *obj = [AllIntSizesObject new];
 
-    // Test standalone
+    // Test unmanaged
     obj[@"int16"] = @(v16);
     XCTAssertEqual([obj[@"int16"] shortValue], v16);
     obj[@"int16"] = @(v32);
@@ -106,8 +104,6 @@
 
     obj[@"int16"] = @(v16);
     XCTAssertEqual([obj[@"int16"] shortValue], v16);
-    obj[@"int16"] = @(v32);
-    XCTAssertNotEqual([obj[@"int16"] intValue], v32, @"should truncate");
 
     obj.int16 = 0;
     obj.int16 = v16;
@@ -115,8 +111,6 @@
 
     obj[@"int32"] = @(v32);
     XCTAssertEqual([obj[@"int32"] intValue], v32);
-    obj[@"int32"] = @(v64);
-    XCTAssertNotEqual([obj[@"int32"] longLongValue], v64, @"should truncate");
 
     obj.int32 = 0;
     obj.int32 = v32;

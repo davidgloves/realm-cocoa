@@ -22,7 +22,15 @@ command:
   test-osx-objc-cocoapods:         tests OS X Objective-C CocoaPods example.
   test-osx-objc-carthage:          tests OS X Objective-C Carthage example.
   test-osx-swift-dynamic:          tests OS X Swift dynamic example.
+  test-osx-swift-cocoapods:        tests OS X Swift CocoaPods example.
   test-osx-swift-carthage:         tests OS X Swift Carthage example.
+
+  test-watchos-objc-dynamic:       tests watchOS Objective-C dynamic example.
+  test-watchos-objc-cocoapods:     tests watchOS Objective-C CocoaPods example.
+  test-watchos-objc-carthage:      tests watchOS Objective-C Carthage example.
+  test-watchos-swift-dynamic:      tests watchOS Swift dynamic example.
+  test-watchos-swift-cocoapods:    tests watchOS Swift CocoaPods example.
+  test-watchos-swift-carthage:     tests watchOS Swift Carthage example.
 EOF
 }
 
@@ -34,7 +42,8 @@ download_zip_if_needed() {
     if [ ! -f $DIRECTORY.zip ]; then
         curl -o $DIRECTORY.zip -L https://static.realm.io/downloads/$LANG/latest
         unzip $DIRECTORY.zip
-        mv realm-$LANG-0.* $DIRECTORY
+        rm $DIRECTORY.zip
+        mv realm-$LANG-* $DIRECTORY
     fi
 }
 
@@ -45,10 +54,6 @@ xctest() {
     DIRECTORY="$PLATFORM/$LANG/$NAME"
     PROJECT="$DIRECTORY/$NAME.xcodeproj"
     WORKSPACE="$DIRECTORY/$NAME.xcworkspace"
-    CMD="-project $PROJECT"
-    if [ -d $WORKSPACE ]; then
-        CMD="-workspace $WORKSPACE"
-    fi
     if [[ $PLATFORM == ios ]]; then
         sh "$(dirname "$0")/../../scripts/reset-simulators.sh"
     fi
@@ -62,7 +67,13 @@ xctest() {
             else
                 echo "github \"realm/realm-cocoa\" \"${sha:-master}\"" > Cartfile
             fi
-            carthage update
+            if [[ $PLATFORM == ios ]]; then
+                carthage update --platform iOS
+            elif [[ $PLATFORM == osx ]]; then
+                carthage update --platform Mac
+            elif [[ $PLATFORM == watchos ]]; then
+                carthage update --platform watchOS
+            fi
         )
     elif [[ $LANG == swift* ]]; then
         download_zip_if_needed swift
@@ -73,7 +84,17 @@ xctest() {
     if [[ $PLATFORM == ios ]]; then
         DESTINATION="-destination id=$(xcrun simctl list devices | grep -v unavailable | grep -m 1 -o '[0-9A-F\-]\{36\}')"
     fi
-    xcodebuild $CMD -scheme $NAME clean build test $DESTINATION
+    CMD="-project $PROJECT"
+    if [ -d $WORKSPACE ]; then
+        CMD="-workspace $WORKSPACE"
+    fi
+    ACTION=""
+    if [[ $PLATFORM == watchos ]]; then
+        ACTION="build"
+    else
+        ACTION="build test"
+    fi
+    xcodebuild $CMD -scheme $NAME clean $ACTION $DESTINATION
 }
 
 source "$(dirname "$0")/../../scripts/swift-version.sh"
@@ -85,19 +106,14 @@ case "$COMMAND" in
         ;;
 
     "test-xcode6")
-        for target in ios-objc-static ios-objc-dynamic ios-objc-cocoapods ios-objc-cocoapods-dynamic ios-objc-carthage osx-objc-dynamic osx-objc-cocoapods osx-objc-carthage ios-swift-dynamic ios-swift-cocoapods osx-swift-dynamic; do
+        for target in ios-objc-static ios-objc-dynamic ios-objc-cocoapods ios-objc-cocoapods-dynamic ios-objc-carthage osx-objc-dynamic osx-objc-cocoapods osx-objc-carthage; do
             REALM_SWIFT_VERSION=1.2 ./build.sh test-$target || exit 1
         done
-
-        # FIXME: Re-enable once Carthage supports multiple build folders.
-        # export REALM_SWIFT_VERSION=1.2
-        # ./build.sh test-ios-swift-carthage || exit 1
-        # ./build.sh test-osx-swift-carthage || exit 1
         ;;
 
     "test-xcode7")
-        for target in ios-swift-dynamic ios-swift-cocoapods osx-swift-dynamic ios-swift-carthage osx-swift-carthage; do
-            REALM_SWIFT_VERSION=2.1.1 ./build.sh test-$target || exit 1
+        for target in ios-swift-dynamic ios-swift-cocoapods osx-swift-dynamic ios-swift-carthage osx-swift-carthage watchos-objc-dynamic test-watchos-objc-cocoapods test-watchos-objc-carthage watchos-swift-dynamic test-watchos-swift-cocoapods test-watchos-swift-carthage; do
+            REALM_SWIFT_VERSION=2.2 ./build.sh test-$target || exit 1
         done
         ;;
 
@@ -149,8 +165,36 @@ case "$COMMAND" in
         xctest osx swift-$REALM_SWIFT_VERSION DynamicExample
         ;;
 
+    "test-osx-swift-cocoapods")
+        xctest osx swift-$REALM_SWIFT_VERSION CocoaPodsExample
+        ;;
+
     "test-osx-swift-carthage")
         xctest osx swift-$REALM_SWIFT_VERSION CarthageExample
+        ;;
+
+    "test-watchos-objc-dynamic")
+        xctest watchos objc DynamicExample
+        ;;
+
+    "test-watchos-objc-cocoapods")
+        xctest watchos objc CocoaPodsExample
+        ;;
+
+    "test-watchos-objc-carthage")
+        xctest watchos objc CarthageExample
+        ;;
+
+    "test-watchos-swift-dynamic")
+        xctest watchos swift-$REALM_SWIFT_VERSION DynamicExample
+        ;;
+
+    "test-watchos-swift-cocoapods")
+        xctest watchos swift-$REALM_SWIFT_VERSION CocoaPodsExample
+        ;;
+
+    "test-watchos-swift-carthage")
+        xctest watchos swift-$REALM_SWIFT_VERSION CarthageExample
         ;;
 
     *)

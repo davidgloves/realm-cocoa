@@ -33,7 +33,7 @@
 - (void)testDynamicRealmExists {
     @autoreleasepool {
         // open realm in autoreleasepool to create tables and then dispose
-        RLMRealm *realm = [RLMRealm realmWithPath:RLMTestRealmPath()];
+        RLMRealm *realm = [RLMRealm realmWithURL:RLMTestRealmURL()];
         [realm beginWriteTransaction];
         [DynamicObject createInRealm:realm withValue:@[@"column1", @1]];
         [DynamicObject createInRealm:realm withValue:@[@"column2", @2]];
@@ -85,8 +85,12 @@
     }
     XCTAssertNotNil(expectedSchema);
 
+    RLMRealmConfiguration *config = [RLMRealmConfiguration new];
+    config.fileURL = RLMTestRealmURL();
+    config.dynamic = YES;
+
     NSError *error = nil;
-    RLMSchema *dynamicSchema = [[RLMRealm realmWithPath:RLMTestRealmPath() key:nil readOnly:NO inMemory:NO dynamic:YES schema:nil error:&error] schema];
+    RLMSchema *dynamicSchema = [[RLMRealm realmWithConfiguration:config error:&error] schema];
     XCTAssertNil(error);
     XCTAssertEqual(dynamicSchema.objectSchema.count, expectedSchema.objectSchema.count);
     for (RLMObjectSchema *expectedObjectSchema in expectedSchema.objectSchema) {
@@ -95,7 +99,7 @@
         for (NSUInteger propertyIndex = 0; propertyIndex < expectedObjectSchema.properties.count; propertyIndex++) {
             RLMProperty *dynamicProperty = dynamicObjectSchema.properties[propertyIndex];
             RLMProperty *expectedProperty = expectedObjectSchema.properties[propertyIndex];
-            XCTAssertTrue([dynamicProperty isEqualToProperty:expectedProperty]);
+            XCTAssertEqualObjects(dynamicProperty, expectedProperty);
         }
     }
 }
@@ -105,6 +109,7 @@
     RLMProperty *prop = [[RLMProperty alloc] initWithName:@"a"
                                                      type:RLMPropertyTypeInt
                                           objectClassName:nil
+                                   linkOriginPropertyName:nil
                                                   indexed:NO
                                                  optional:NO];
     RLMObjectSchema *objectSchema = [[RLMObjectSchema alloc] initWithClassName:@"TrulyDynamicObject"
@@ -117,7 +122,7 @@
 - (void)testDynamicProperties {
     @autoreleasepool {
         // open realm in autoreleasepool to create tables and then dispose
-        RLMRealm *realm = [RLMRealm realmWithPath:RLMTestRealmPath()];
+        RLMRealm *realm = [RLMRealm realmWithURL:RLMTestRealmURL()];
         [realm beginWriteTransaction];
         [DynamicObject createInRealm:realm withValue:@[@"column1", @1]];
         [DynamicObject createInRealm:realm withValue:@[@"column2", @2]];
@@ -137,14 +142,14 @@
 
 - (void)testDynamicTypes {
     NSDate *now = [NSDate dateWithTimeIntervalSince1970:100000];
-    id obj1 = @[@YES, @1, @1.1f, @1.11, @"string", [NSData dataWithBytes:"a" length:1], now, @YES, @11, @0, NSNull.null];
+    id obj1 = @[@YES, @1, @1.1f, @1.11, @"string", [NSData dataWithBytes:"a" length:1], now, @YES, @11, NSNull.null];
     
     StringObject *obj = [[StringObject alloc] init];
     obj.stringCol = @"string";
-    id obj2 = @[@NO, @2, @2.2f, @2.22, @"string2", [NSData dataWithBytes:"b" length:1], now, @NO, @22, now, obj];
+    id obj2 = @[@NO, @2, @2.2f, @2.22, @"string2", [NSData dataWithBytes:"b" length:1], now, @NO, @22, obj];
     @autoreleasepool {
         // open realm in autoreleasepool to create tables and then dispose
-        RLMRealm *realm = [RLMRealm realmWithPath:RLMTestRealmPath()];
+        RLMRealm *realm = [RLMRealm realmWithURL:RLMTestRealmURL()];
         [realm beginWriteTransaction];
         [AllTypesObject createInRealm:realm withValue:obj1];
         [AllTypesObject createInRealm:realm withValue:obj2];
@@ -157,14 +162,14 @@
     XCTAssertEqual(results.count, (NSUInteger)2, @"Should have 2 objects");
     
     RLMObjectSchema *schema = dyrealm.schema[AllTypesObject.className];
-    for (int i = 0; i < 10; i++) {
+    for (int i = 0; i < 9; i++) {
         NSString *propName = [schema.properties[i] name];
         XCTAssertEqualObjects(obj1[i], results[0][propName], @"Invalid property value");
         XCTAssertEqualObjects(obj2[i], results[1][propName], @"Invalid property value");
     }
     
     // check sub object type
-    XCTAssertEqualObjects([schema.properties[10] objectClassName], @"StringObject",
+    XCTAssertEqualObjects([schema.properties[9] objectClassName], @"StringObject",
                           @"Sub-object type in schema should be 'StringObject'");
     
     // check object equality
@@ -176,14 +181,14 @@
 - (void)testDynamicAdd {
     @autoreleasepool {
         // open realm in autoreleasepool to create tables and then dispose
-        [RLMRealm realmWithPath:RLMTestRealmPath()];
+        [RLMRealm realmWithURL:RLMTestRealmURL()];
     }
 
     RLMRealm *dyrealm = [self realmWithTestPathAndSchema:nil];
     [dyrealm beginWriteTransaction];
     RLMObject *stringObject = [dyrealm createObject:StringObject.className withValue:@[@"string"]];
     [dyrealm createObject:AllTypesObject.className withValue:@[@NO, @2, @2.2f, @2.22, @"string2",
-        [NSData dataWithBytes:"b" length:1], NSDate.date, @NO, @22, @0, stringObject]];
+        [NSData dataWithBytes:"b" length:1], NSDate.date, @NO, @22, stringObject]];
     [dyrealm commitWriteTransaction];
 
     XCTAssertEqual(1U, [dyrealm allObjects:StringObject.className].count);
@@ -193,7 +198,7 @@
 - (void)testDynamicArray {
     @autoreleasepool {
         // open realm in autoreleasepool to create tables and then dispose
-        [RLMRealm realmWithPath:RLMTestRealmPath()];
+        [RLMRealm realmWithURL:RLMTestRealmURL()];
     }
 
     RLMRealm *dyrealm = [self realmWithTestPathAndSchema:nil];
@@ -218,6 +223,30 @@
     XCTAssertEqual(2U, array.count);
     XCTAssertEqualObjects(array[0][@"stringCol"], stringObject1[@"stringCol"]);
     XCTAssertEqualObjects(array[1][@"stringCol"], stringObject[@"stringCol"]);
+}
+
+- (void)testReadingNulls {
+    @autoreleasepool {
+        // open realm in autoreleasepool to create tables and then dispose
+        [RLMRealm realmWithURL:RLMTestRealmURL()];
+    }
+
+    RLMRealm *dyrealm = [self realmWithTestPathAndSchema:nil];
+    [dyrealm beginWriteTransaction];
+    [dyrealm createObject:AllOptionalTypes.className withValue:@[ [NSNull null], [NSNull null], [NSNull null], [NSNull null], [NSNull null], [NSNull null], [NSNull null] ]];
+    [dyrealm commitWriteTransaction];
+
+    RLMResults *results = [dyrealm allObjects:AllOptionalTypes.className];
+    XCTAssertEqual(1U, results.count);
+    RLMObject *object = results.firstObject;
+
+    XCTAssertNil(object[@"intObj"]);
+    XCTAssertNil(object[@"floatObj"]);
+    XCTAssertNil(object[@"doubleObj"]);
+    XCTAssertNil(object[@"boolObj"]);
+    XCTAssertNil(object[@"string"]);
+    XCTAssertNil(object[@"data"]);
+    XCTAssertNil(object[@"date"]);
 }
 
 @end

@@ -8,7 +8,7 @@ Pod::Spec.new do |s|
                                 Realm is a mobile database: a replacement for Core Data & SQLite. You can use it on iOS & OS X. Realm is not an ORM on top SQLite: instead it uses its own persistence engine, built for simplicity (& speed). Learn more and get help at https://realm.io
                                 DESC
   s.homepage                  = "https://realm.io"
-  s.source                    = { :git => 'https://github.com/realm/realm-cocoa.git', :tag => "v#{s.version}" }
+  s.source                    = { :git => 'https://github.com/realm/realm-cocoa.git', :tag => "v#{s.version}", :submodules => true }
   s.author                    = { 'Realm' => 'help@realm.io' }
   s.requires_arc              = true
   s.social_media_url          = 'https://twitter.com/realm'
@@ -18,14 +18,14 @@ Pod::Spec.new do |s|
   s.dependency 'Realm', "= #{s.version}"
   s.source_files = 'RealmSwift/*.swift'
 
-  s.prepare_command           = 'sh build.sh cocoapods-setup without-core'
+  s.prepare_command           = 'sh build.sh cocoapods-setup swift'
   s.preserve_paths            = %w(build.sh)
-  
+
   s.pod_target_xcconfig = { 'SWIFT_WHOLE_MODULE_OPTIMIZATION' => 'YES',
                             'APPLICATION_EXTENSION_API_ONLY' => 'YES' }
 
   s.ios.deployment_target     = '8.0'
   s.osx.deployment_target     = '10.9'
-  s.watchos.deployment_target = '2.0' if s.respond_to?(:watchos)
-  s.tvos.deployment_target    = '9.0' if s.respond_to?(:tvos)
+  s.watchos.deployment_target = '2.0'
+  s.tvos.deployment_target    = '9.0'
 end

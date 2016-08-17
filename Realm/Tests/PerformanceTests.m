@@ -70,11 +70,6 @@ static RLMRealm *s_smallRealm, *s_mediumRealm, *s_largeRealm;
     RLMRealmConfiguration *config = [RLMRealmConfiguration new];
     config.inMemoryIdentifier = @(factor).stringValue;
 
-    // If a previous run of the tests crashed there could be a lingering
-    // copy of the in-memory realm
-    // FIXME: remove this once core does it automatically
-    [NSFileManager.defaultManager removeItemAtPath:[RLMRealm writeableTemporaryPathForFile:config.inMemoryIdentifier] error:nil];
-
     RLMRealm *realm = [RLMRealm realmWithConfiguration:config error:nil];
     [realm beginWriteTransaction];
     for (int i = 0; i < 1000 * factor; ++i) {
@@ -136,8 +131,8 @@ static RLMRealm *s_smallRealm, *s_mediumRealm, *s_largeRealm;
     RLMRealmConfiguration *config = [RLMRealmConfiguration new];
     config.inMemoryIdentifier = @(factor).stringValue;
     RLMRealm *realm = [RLMRealm realmWithConfiguration:config error:nil];
-    [NSFileManager.defaultManager removeItemAtPath:RLMTestRealmPath() error:nil];
-    [realm writeCopyToPath:RLMTestRealmPath() error:nil];
+    [NSFileManager.defaultManager removeItemAtURL:RLMTestRealmURL() error:nil];
+    [realm writeCopyToURL:RLMTestRealmURL() encryptionKey:nil error:nil];
     return [self realmWithTestPath];
 }
 
@@ -374,7 +369,7 @@ static RLMRealm *s_smallRealm, *s_mediumRealm, *s_largeRealm;
             }
         }
     }];
-    [realm path];
+    [realm configuration];
 }
 
 - (void)testRealmCreationUncached {
@@ -434,7 +429,7 @@ static RLMRealm *s_smallRealm, *s_mediumRealm, *s_largeRealm;
             }];
         }
         [self stopMeasuring];
-        [realm removeNotification:token];
+        [token stop];
     }];
 }
 
@@ -463,7 +458,7 @@ static RLMRealm *s_smallRealm, *s_mediumRealm, *s_largeRealm;
             });
             CFRunLoopRun();
 
-            [realm removeNotification:token];
+            [token stop];
         }];
 
         dispatch_semaphore_wait(sema, DISPATCH_TIME_FOREVER);
@@ -476,6 +471,47 @@ static RLMRealm *s_smallRealm, *s_mediumRealm, *s_largeRealm;
 
         [self dispatchAsyncAndWait:^{}];
         [self stopMeasuring];
+    }];
+}
+
+- (void)testCommitWriteTransactionWithResultsNotification {
+    [self measureMetrics:self.class.defaultPerformanceMetrics automaticallyStartMeasuring:NO forBlock:^{
+        RLMRealm *realm = [self getStringObjects:5];
+        RLMResults *results = [StringObject allObjectsInRealm:realm];
+        id token = [results addNotificationBlock:^(__unused RLMResults *results, __unused RLMCollectionChange *change, __unused NSError *error) {
+            CFRunLoopStop(CFRunLoopGetCurrent());
+        }];
+        CFRunLoopRun();
+
+        [realm beginWriteTransaction];
+        [realm deleteObjects:[StringObject objectsInRealm:realm where:@"stringCol = 'a'"]];
+        [realm commitWriteTransaction];
+
+        [self startMeasuring];
+        CFRunLoopRun();
+        [token stop];
+    }];
+}
+
+- (void)testCommitWriteTransactionWithListNotification {
+    [self measureMetrics:self.class.defaultPerformanceMetrics automaticallyStartMeasuring:NO forBlock:^{
+        RLMRealm *realm = [self getStringObjects:5];
+        [realm beginWriteTransaction];
+        ArrayPropertyObject *arrayObj = [ArrayPropertyObject createInRealm:realm withValue:@[@"", [StringObject allObjectsInRealm:realm], @[]]];
+        [realm commitWriteTransaction];
+
+        id token = [arrayObj.array addNotificationBlock:^(__unused RLMArray *results, __unused RLMCollectionChange *change, __unused NSError *error) {
+            CFRunLoopStop(CFRunLoopGetCurrent());
+        }];
+        CFRunLoopRun();
+
+        [realm beginWriteTransaction];
+        [realm deleteObjects:[StringObject objectsInRealm:realm where:@"stringCol = 'a'"]];
+        [realm commitWriteTransaction];
+
+        [self startMeasuring];
+        CFRunLoopRun();
+        [token stop];
     }];
 }
 
@@ -511,7 +547,7 @@ static RLMRealm *s_smallRealm, *s_mediumRealm, *s_largeRealm;
             });
             CFRunLoopRun();
 
-            [realm removeNotification:token];
+            [token stop];
         }];
 
         RLMNotificationToken *token = [realm addNotificationBlock:^(__unused NSString *note, __unused RLMRealm *realm) {
@@ -534,7 +570,7 @@ static RLMRealm *s_smallRealm, *s_mediumRealm, *s_largeRealm;
         [self dispatchAsyncAndWait:^{}];
         [self stopMeasuring];
 
-        [realm removeNotification:token];
+        [token stop];
     }];
 }
 
@@ -593,16 +629,17 @@ static RLMRealm *s_smallRealm, *s_mediumRealm, *s_largeRealm;
         [self observeObject:obj keyPath:@"array"
                       until:^(id obj) { return [obj array].count >= count; }];
 
+        RLMArray *array = obj.array;
         [self startMeasuring];
         [realm beginWriteTransaction];
         for (StringObject *so in [StringObject allObjectsInRealm:realm]) {
-            [obj.array addObject:so];
-            if (obj.array.count % factor == 0) {
+            [array addObject:so];
+            if (array.count % factor == 0) {
                 [realm commitWriteTransaction];
                 dispatch_semaphore_wait(_sema, DISPATCH_TIME_FOREVER);
                 [realm beginWriteTransaction];
             }
-            if (obj.array.count > count) {
+            if (array.count > count) {
                 break;
             }
         }
@@ -625,21 +662,22 @@ static RLMRealm *s_smallRealm, *s_mediumRealm, *s_largeRealm;
         [self observeObject:obj keyPath:@"array"
                       until:^(id obj) { return [obj array].count >= count; }];
 
+        RLMArray *array = obj.array;
         [self startMeasuring];
         [realm beginWriteTransaction];
         for (StringObject *so in [StringObject allObjectsInRealm:realm]) {
-            NSUInteger index = obj.array.count;
-            if (obj.array.count > factor) {
+            NSUInteger index = array.count;
+            if (array.count > factor) {
                 index = index * 3 % factor;
             }
-            [obj.array insertObject:so atIndex:index];
+            [array insertObject:so atIndex:index];
 
-            if (obj.array.count % factor == 0) {
+            if (array.count % factor == 0) {
                 [realm commitWriteTransaction];
                 dispatch_semaphore_wait(_sema, DISPATCH_TIME_FOREVER);
                 [realm beginWriteTransaction];
             }
-            if (obj.array.count > count) {
+            if (array.count > count) {
                 break;
             }
         }

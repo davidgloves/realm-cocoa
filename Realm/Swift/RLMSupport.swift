@@ -18,62 +18,139 @@
 
 import Realm
 
-extension RLMObject {
-    // Swift query convenience functions
-    public class func objectsWhere(predicateFormat: String, _ args: CVarArgType...) -> RLMResults {
-        return objectsWithPredicate(NSPredicate(format: predicateFormat, arguments: getVaList(args)))
-    }
-
-    public class func objectsInRealm(realm: RLMRealm, _ predicateFormat: String, _ args: CVarArgType...) -> RLMResults {
-        return objectsInRealm(realm, withPredicate:NSPredicate(format: predicateFormat, arguments: getVaList(args)))
-    }
-}
-
-public class RLMGenerator: GeneratorType {
-    private var i: UInt = 0
-    private let collection: RLMCollection
-
-    init(collection: RLMCollection) {
-        self.collection = collection
-    }
-
-    public func next() -> RLMObject? {
-        if i >= collection.count {
-            return .None
-        } else {
-            return collection[i++] as? RLMObject
+#if swift(>=3.0)
+    extension RLMRealm {
+        public class func schemaVersion(at url: URL, usingEncryptionKey key: Data? = nil) throws -> UInt64 {
+            var error: NSError?
+            let version = __schemaVersion(at: url, encryptionKey: key, error: &error)
+            guard version != RLMNotVersioned else {
+                throw error!
+            }
+            return version
         }
     }
-}
 
-extension RLMArray: SequenceType {
-    // Support Sequence-style enumeration
-    public func generate() -> RLMGenerator {
-        return RLMGenerator(collection: self)
+    extension RLMObject {
+        // Swift query convenience functions
+        public class func objects(where predicateFormat: String, _ args: CVarArg...) -> RLMResults<RLMObject> {
+            return objects(with: NSPredicate(format: predicateFormat, arguments: getVaList(args)))
+        }
+
+        public class func objects(in realm: RLMRealm,
+                                  where predicateFormat: String,
+                                  _ args: CVarArg...) -> RLMResults<RLMObject> {
+            return objects(in: realm, with: NSPredicate(format: predicateFormat, arguments: getVaList(args)))
+        }
     }
 
-    // Swift query convenience functions
-    public func indexOfObjectWhere(predicateFormat: String, _ args: CVarArgType...) -> UInt {
-        return indexOfObjectWithPredicate(NSPredicate(format: predicateFormat, arguments: getVaList(args)))
+    public final class RLMIterator: IteratorProtocol {
+        private let iteratorBase: NSFastEnumerationIterator
+
+        internal init(collection: RLMCollection) {
+            iteratorBase = NSFastEnumerationIterator(collection)
+        }
+
+        public func next() -> RLMObject? {
+            return iteratorBase.next() as! RLMObject?
+        }
     }
 
-    public func objectsWhere(predicateFormat: String, _ args: CVarArgType...) -> RLMResults {
-        return objectsWithPredicate(NSPredicate(format: predicateFormat, arguments: getVaList(args)))
-    }
-}
+    // TODO: Figure out why this causes the Swift 3 compiler to segfault.
+//    extension RLMArray: Sequence  {
+//        // Support Sequence-style enumeration
+//        public func makeIterator() -> RLMIterator {
+//            return RLMIterator(collection: self)
+//        }
+//    }
+//
+//    extension RLMResults: Sequence {
+//        // Support Sequence-style enumeration
+//        public func makeIterator() -> RLMIterator {
+//            return RLMIterator(collection: self)
+//        }
+//    }
 
-extension RLMResults: SequenceType {
-    // Support Sequence-style enumeration
-    public func generate() -> RLMGenerator {
-        return RLMGenerator(collection: self)
+    extension RLMCollection {
+        // Support Sequence-style enumeration
+        public func makeIterator() -> RLMIterator {
+            return RLMIterator(collection: self)
+        }
     }
 
-    // Swift query convenience functions
-    public func indexOfObjectWhere(predicateFormat: String, _ args: CVarArgType...) -> UInt {
-        return indexOfObjectWithPredicate(NSPredicate(format: predicateFormat, arguments: getVaList(args)))
+    extension RLMCollection {
+        // Swift query convenience functions
+        public func indexOfObject(where predicateFormat: String, _ args: CVarArg...) -> UInt {
+            return indexOfObject(with: NSPredicate(format: predicateFormat, arguments: getVaList(args)))
+        }
+
+        public func objects(where predicateFormat: String, _ args: CVarArg...) -> RLMResults<RLMObject> {
+            return objects(with: NSPredicate(format: predicateFormat, arguments: getVaList(args)))
+        }
     }
 
-    public func objectsWhere(predicateFormat: String, _ args: CVarArgType...) -> RLMResults {
-        return objectsWithPredicate(NSPredicate(format: predicateFormat, arguments: getVaList(args)))
+#else
+    extension RLMRealm {
+        @nonobjc public class func schemaVersionAtURL(url: NSURL, encryptionKey key: NSData? = nil,
+                                                      error: NSErrorPointer) -> UInt64 {
+            return __schemaVersionAtURL(url, encryptionKey: key, error: error)
+        }
     }
-}
+
+    extension RLMObject {
+        // Swift query convenience functions
+        public class func objectsWhere(predicateFormat: String, _ args: CVarArgType...) -> RLMResults {
+            return objectsWithPredicate(NSPredicate(format: predicateFormat, arguments: getVaList(args)))
+        }
+
+        public class func objectsInRealm(realm: RLMRealm,
+                                         _ predicateFormat: String,
+                                         _ args: CVarArgType...) -> RLMResults {
+            return objectsInRealm(realm,
+                                  withPredicate: NSPredicate(format: predicateFormat, arguments: getVaList(args)))
+        }
+    }
+
+    public final class RLMGenerator: GeneratorType {
+        private let generatorBase: NSFastGenerator
+
+        internal init(collection: RLMCollection) {
+            generatorBase = NSFastGenerator(collection)
+        }
+
+        public func next() -> RLMObject? {
+            return generatorBase.next() as! RLMObject?
+        }
+    }
+
+    extension RLMArray: SequenceType {
+        // Support Sequence-style enumeration
+        public func generate() -> RLMGenerator {
+            return RLMGenerator(collection: self)
+        }
+
+        // Swift query convenience functions
+        public func indexOfObjectWhere(predicateFormat: String, _ args: CVarArgType...) -> UInt {
+            return indexOfObjectWithPredicate(NSPredicate(format: predicateFormat, arguments: getVaList(args)))
+        }
+
+        public func objectsWhere(predicateFormat: String, _ args: CVarArgType...) -> RLMResults {
+            return objectsWithPredicate(NSPredicate(format: predicateFormat, arguments: getVaList(args)))
+        }
+    }
+
+    extension RLMResults: SequenceType {
+        // Support Sequence-style enumeration
+        public func generate() -> RLMGenerator {
+            return RLMGenerator(collection: self)
+        }
+
+        // Swift query convenience functions
+        public func indexOfObjectWhere(predicateFormat: String, _ args: CVarArgType...) -> UInt {
+            return indexOfObjectWithPredicate(NSPredicate(format: predicateFormat, arguments: getVaList(args)))
+        }
+
+        public func objectsWhere(predicateFormat: String, _ args: CVarArgType...) -> RLMResults {
+            return objectsWithPredicate(NSPredicate(format: predicateFormat, arguments: getVaList(args)))
+        }
+    }
+#endif

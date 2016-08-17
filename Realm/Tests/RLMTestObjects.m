@@ -17,6 +17,7 @@
 ////////////////////////////////////////////////////////////////////////////
 
 #import "RLMTestObjects.h"
+#import <Realm/RLMObject_Private.h>
 
 #pragma mark - Abstract Objects
 #pragma mark -
@@ -72,6 +73,14 @@
 #pragma mark AllTypesObject
 
 @implementation AllTypesObject
++ (NSDictionary *)linkingObjectsProperties
+{
+    return @{ @"linkingObjectsCol": [RLMPropertyDescriptor descriptorWithClass:LinkToAllTypesObject.class propertyName:@"allTypesCol"] };
+}
++ (NSArray *)requiredProperties
+{
+    return @[@"stringCol", @"dateCol", @"binaryCol"];
+}
 @end
 
 @implementation ArrayOfAllTypesObject
@@ -96,9 +105,20 @@
 @implementation CompanyObject
 @end
 
+#pragma mark LinkToCompanyObject
+
+@implementation LinkToCompanyObject
+@end
+
 #pragma mark DogObject
 
+@class OwnerObject;
+
 @implementation DogObject
++ (NSDictionary *)linkingObjectsProperties
+{
+    return @{ @"owners": [RLMPropertyDescriptor descriptorWithClass:OwnerObject.class propertyName:@"dog"] };
+}
 @end
 
 #pragma mark OwnerObject
@@ -108,11 +128,6 @@
 
 #pragma mark - Specific Use Objects
 #pragma mark -
-
-#pragma mark MixedObject
-
-@implementation MixedObject
-@end
 
 #pragma mark CustomAccessorsObject
 
@@ -188,11 +203,56 @@
 }
 @end
 
+#pragma mark CustomInitializerObject
+
+@implementation CustomInitializerObject
+
+- (instancetype)init {
+    self = [super init];
+    if (self) {
+        self.stringCol = @"test";
+    }
+    return self;
+}
+
+@end
+
+#pragma mark AbstractObject
+
+@implementation AbstractObject
+@end
+
+#pragma mark PersonObject
+
+@implementation PersonObject
+
++ (NSDictionary *)linkingObjectsProperties
+{
+    return @{ @"parents": [RLMPropertyDescriptor descriptorWithClass:PersonObject.class propertyName:@"children"] };
+}
+
+- (BOOL)isEqual:(id)other
+{
+    if (![other isKindOfClass:[PersonObject class]]) {
+        return NO;
+    }
+
+    PersonObject *otherPerson = other;
+    return [self.name isEqual:otherPerson.name] && self.age == otherPerson.age && [self.children isEqual:otherPerson.children];
+}
+
+@end
+
+
+
 #pragma mark FakeObject
 
 @implementation FakeObject
++ (Class)objectUtilClass:(BOOL)isSwift { return RLMObjectUtilClass(isSwift); }
 + (NSArray *)ignoredProperties { return nil; }
 + (NSArray *)indexedProperties { return nil; }
 + (NSString *)primaryKey { return nil; }
 + (NSArray *)requiredProperties { return nil; }
++ (NSDictionary *)linkingObjectsProperties { return nil; }
++ (BOOL)shouldIncludeInDefaultSchema { return NO; }
 @end
